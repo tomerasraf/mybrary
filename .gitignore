@@ -1,0 +1,54 @@
+# ─────────────────────────────────────────────────────────────
+#  Privacy first: nothing a person writes, says or configures
+#  should ever leave their machine through git.
+# ─────────────────────────────────────────────────────────────
+
+# Your thoughts, the bird's notebook, and any other local database
+data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+
+# Secrets: API keys, passcodes, any local settings
+# (.env.example is the only env file that is shared, and it holds no values)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# Self-signed certificates made by `npm run dev:https`
+certificates/
+
+# Backups / exports someone might drop in the folder
+*.bak
+*.dump
+backups/
+exports/
+
+# Local AI tool / editor settings
+.claude/
+CLAUDE.local.md
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Dependencies and build output
+node_modules/
+.next/
+out/
+build/
+dist/
+coverage/
+next-env.d.ts
+*.tsbuildinfo
+
+# Logs and OS clutter
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+desktop.ini
