@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "TimeFlow",
-    short_name: "TimeFlow",
+    name: "MyBrary",
+    short_name: "MyBrary",
     description: "Where your thoughts become bubbles.",
     start_url: "/",
     display: "standalone",

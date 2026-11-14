@@ -42,7 +42,7 @@ const globalForDb = globalThis as unknown as { __mindDb?: DB };
 
 export function getDb(): DB {
   if (!globalForDb.__mindDb) {
-    const file = process.env.TIMEFLOW_DB ?? path.join(process.cwd(), "data", "mind.db");
+    const file = process.env.MYBRARY_DB ?? process.env.TIMEFLOW_DB ?? path.join(process.cwd(), "data", "mind.db");
     globalForDb.__mindDb = createDb(file);
   }
   return globalForDb.__mindDb;

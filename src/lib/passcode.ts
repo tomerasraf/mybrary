@@ -1,8 +1,8 @@
 // Edge-safe helpers (Web Crypto only) for the optional APP_PASSCODE lock.
-export const AUTH_COOKIE = "timeflow_key";
+export const AUTH_COOKIE = "mybrary_key";
 
 export async function passcodeToken(passcode: string): Promise<string> {
-  const data = new TextEncoder().encode(`timeflow:${passcode}`);
+  const data = new TextEncoder().encode(`mybrary:${passcode}`);
   const digest = await crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }

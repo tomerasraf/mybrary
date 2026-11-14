@@ -7,9 +7,9 @@ const paper = Courier_Prime({ subsets: ["latin"], weight: ["400", "700"], variab
 const hand = Patrick_Hand({ subsets: ["latin"], weight: "400", variable: "--font-hand", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "TimeFlow",
+  title: "MyBrary",
   description: "A quiet white place where your thoughts become bubbles, and a little bird helps you untangle them.",
-  appleWebApp: { capable: true, title: "TimeFlow", statusBarStyle: "default" },
+  appleWebApp: { capable: true, title: "MyBrary", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {

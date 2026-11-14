@@ -1,66 +1,110 @@
-# timeflow
+<p align="center">
+  <img src="docs/media/banner.png" alt="MyBrary" width="100%">
+</p>
 
-A quiet white place to untangle your mind.
+<p align="center">
+  Say what's on your mind. A little bird types it up,<br>
+  and it floats away as a bubble.
+</p>
 
-Write or say what's on your mind. A little bird in round glasses types it up, carries the page to the
-thought machine, and a bubble swells out of the tube in the middle of the world and floats up to join the
-others. Tap any bubble to read it again. When you're not around, the bird wanders under your bubbles,
-picks the ones that call to it, looks up at them and says what it notices. It keeps a notebook of what it
-learns about you, so it gets to know you over days. When it asks you something, tap its question to answer;
-your answer becomes a bubble too.
+<p align="center">
+  <img src="docs/media/mybrary.gif" alt="Typing a thought, the bird carries it to the tube, and a bubble floats up" width="680">
+</p>
 
-## Start
+<br>
+
+## How it goes
+
+<table>
+  <tr>
+    <td align="center" width="33%"><img src="docs/media/step-1-write.jpg" alt="Writing a thought"><br><b>1 · Write it</b><br><sub>or just say it out loud</sub></td>
+    <td align="center" width="33%"><img src="docs/media/step-2-bubble.jpg" alt="The thought becomes a bubble"><br><b>2 · Let it go</b><br><sub>it becomes a bubble</sub></td>
+    <td align="center" width="33%"><img src="docs/media/step-3-bird.jpg" alt="The bird asks a question"><br><b>3 · The bird wonders</b><br><sub>tap its question to answer</sub></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td align="center" valign="top"><img src="docs/media/read.gif" alt="Tapping a bubble opens the thought" width="520"><br><sub>Tap any bubble to read it again.</sub></td>
+    <td align="center" valign="top"><img src="docs/media/phone.jpg" alt="MyBrary on a phone" width="200"><br><sub>Works on your phone too.</sub></td>
+  </tr>
+</table>
+
+<br>
+
+## Get it running
+
+You need [Node.js](https://nodejs.org) and [Ollama](https://ollama.com/download).
 
 ```bash
+git clone https://github.com/tomerasraf/mybrary.git
+cd mybrary
 npm install
-winget install Ollama.Ollama   # the bird's brain, runs on your machine
-ollama pull qwen3:8b           # ~5 GB
-cp .env.example .env.local     # set APP_PASSCODE (recommended); the bird's settings are optional
-npm run dev                    # http://localhost:3000
+ollama pull qwen3:8b     # the bird's brain, about 5 GB
+npm run dev
 ```
 
-**The bird's brain** is a local model run by [Ollama](https://ollama.com); nothing leaves your machine. Keep the
-Ollama app running. To try another model, `ollama pull <name>` and set `OLLAMA_MODEL` (e.g. `gemma3:12b`, warmer
-but slower on an 8 GB GPU). `OLLAMA_THINK=true` lets it think first: slightly deeper lines, 10-40s each. If `ANTHROPIC_API_KEY` is set, Claude is used as a backup when Ollama isn't available.
-Without either, the bird still lives, it just sticks to its own little phrases.
+Open **http://localhost:3000** and write your first thought. 🫧
 
-**On your phone:** on the same Wi-Fi, open `http://<your-pc-ip>:3000` (find it with `ipconfig`) and "Add to
-Home Screen". Keep `APP_PASSCODE` set so nobody else on the network can get in.
+<details>
+<summary><b>On your phone</b></summary>
+<br>
 
-**Talking from your phone:** browsers only allow the microphone on `https` (or `localhost`). Run
-`npm run dev:https` and open `https://<your-pc-ip>:3000`. The certificate is self-signed, so accept the
-warning once. Voice uses the browser's own speech recognition: Chrome, Edge and Safari support it, Firefox
-doesn't (the mic button hides itself there).
+1. Copy `.env.example` to `.env.local` and set an `APP_PASSCODE`, so nobody else on your Wi-Fi can get in.
+2. Run `npm run dev:https` (the mic needs https).
+3. On your phone, open `https://<your-computer's-ip>:3000`, accept the certificate warning once, and tap **Add to Home Screen**.
 
-## How it's put together
+Voice works in Chrome, Edge and Safari.
+</details>
 
-| Where | What |
+<details>
+<summary><b>Settings</b></summary>
+<br>
+
+All optional. Put them in `.env.local`.
+
+| Setting | What it does |
 | --- | --- |
-| `src/world/` | The three.js world: `tube.ts` (tube and thought machine), `desk.ts` (typewriter), `bird.ts` (the bird's body and moves), `brain.ts` (what the bird decides to do), `bubbles.ts` + `bubbleMaterial.ts` (soap bubbles), `sound.ts` (every sound, synthesized), `layout.ts` (where things float and how the bird walks around obstacles). |
-| `src/components/` | React on top: the input box with voice (`Composer`, `useSpeech`), the opened bubble (`Reader`), the bird's speech (`BirdSpeech`). |
-| `src/lib/` | SQLite storage for thoughts and the bird's notebook (`notebook.ts`), its canned lines, and its brain: `ai/ponder.ts` (what to ask) and `ai/llm.ts` (Ollama first, Claude as backup). |
-| `_archive/inner-sky-v2/` | The previous version of the app, kept for reference. Not built. |
+| `APP_PASSCODE` | Asks for a passcode before opening |
+| `OLLAMA_MODEL` | Give the bird another brain, e.g. `gemma3:12b` |
+| `OLLAMA_THINK=true` | Slower, deeper questions |
+| `ANTHROPIC_API_KEY` | Claude as a backup when Ollama is off |
+| `MYBRARY_DB` | Where your bubbles are saved |
+</details>
 
-Thoughts live in `data/mind.db`. The previous version's data is still in `data/timeflow.db`, untouched.
+<br>
 
-## Privacy
+## Yours, and only yours
 
-Everything is stored on your machine, and by default the bird thinks with a model on your machine too. Only
-if you set `ANTHROPIC_API_KEY` and the local model is unavailable are your bubbles and its notebook sent to the
-Claude API. Voice recognition is done by your browser, which may use its
-vendor's servers (Chrome does).
+🏠 &nbsp;Your bubbles are saved on your own computer, in `data/`.<br>
+🐦 &nbsp;The bird thinks on your computer too.<br>
+🔒 &nbsp;Nothing you write is ever uploaded to git. Your keys aren't either.
 
-Nothing personal is ever committed: `.gitignore` keeps out the whole `data/` folder (your thoughts and the
-bird's notebook), every `.env` file except `.env.example` (API keys, passcode), and local certificates.
+<sub>If you add a Claude key and Ollama is off, the bird sends your bubbles to Claude to think. Chrome's voice typing uses Google's servers.</sub>
 
-## Fork it
+<br>
 
-TimeFlow is open source under the [MIT License](LICENSE). Use it, fork it, bend the idea into something of
-your own. No permission needed.
+## Make it your own
 
-## Dev
+Fork it, change it, give the bird a new hat. It's MIT licensed, so it's yours to play with.
+
+<details>
+<summary><b>Where things live</b></summary>
+<br>
+
+| Folder | |
+| --- | --- |
+| `src/world/` | The 3D world: the tube, the desk, the bird, the bubbles, the sounds |
+| `src/components/` | The text box, voice input, the page you read |
+| `src/lib/` | Saving thoughts, the bird's notebook, its brain |
+| `_archive/` | An older version, kept for ideas |
 
 ```bash
-npm test          # unit tests
+npm test
 npm run typecheck
 ```
+</details>
+
+<br>
+
+<p align="center"><sub>Made with care · <a href="LICENSE">MIT</a></sub></p>
