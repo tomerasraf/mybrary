@@ -11,7 +11,7 @@ interface Props {
   /** How many bubbles sit on it. */
   count: number;
   onClose: () => void;
-  onChange: (id: number, patch: { name?: string; color?: ShelfColor }) => void;
+  onChange: (id: number, patch: { name?: string; color?: ShelfColor; about?: string }) => void;
   /** You made the bird forget something. */
   onForgot?: () => void;
 }
@@ -39,9 +39,24 @@ function Knowledge({ onForgot }: { onForgot?: () => void }) {
     };
   }, []);
 
-  const forget = (id: number) => {
-    setFacts((list) => list?.filter((f) => f.id !== id) ?? null);
-    void fetch(`/api/knowledge/${id}`, { method: "DELETE" }).then(() => onForgot?.());
+  const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
+
+  const forget = (f: Fact) => {
+    setFacts((list) => list?.filter((x) => !(x.id === f.id && x.kind === f.kind)) ?? null);
+    void fetch(`/api/knowledge/${f.id}${f.kind === "waved" ? "?kind=waved" : ""}`, { method: "DELETE" }).then(() => onForgot?.());
+  };
+
+  const save = () => {
+    const edit = editing;
+    setEditing(null);
+    const body = edit?.text.replace(/\s+/g, " ").trim();
+    if (!edit || !body) return;
+    setFacts((list) => list?.map((f) => (f.id === edit.id && f.kind !== "waved" ? { ...f, body } : f)) ?? null);
+    void fetch(`/api/knowledge/${edit.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    });
   };
 
   if (!facts) return null;
@@ -51,18 +66,42 @@ function Knowledge({ onForgot }: { onForgot?: () => void }) {
       <h3 className="know-title">what it knows</h3>
       <ul className="know">
         {facts.map((f) => (
-          <li key={f.id} data-rule={f.kind === "rule" || undefined}>
+          <li key={`${f.kind}-${f.id}`} data-rule={f.kind === "rule" || undefined} data-waved={f.kind === "waved" || undefined}>
             <span dir="auto">
-              {f.kind === "rule" ? <b>you told it: </b> : <b>{f.name}: </b>}
-              {f.body}
+              {f.kind === "rule" ? <b>you told it: </b> : f.kind === "waved" ? <b>it won&apos;t ask: </b> : <b>{f.name}: </b>}
+              {f.kind !== "waved" && editing?.id === f.id ? (
+                <input
+                  className="know-edit"
+                  autoFocus
+                  dir="auto"
+                  value={editing.text}
+                  maxLength={f.kind === "rule" ? 300 : 160}
+                  aria-label={`Correct: ${f.name ?? "what you told it"}`}
+                  onChange={(e) => setEditing({ id: f.id, text: e.target.value })}
+                  onBlur={save}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") save();
+                    else if (e.key === "Escape") {
+                      e.stopPropagation();
+                      setEditing(null);
+                    }
+                  }}
+                />
+              ) : f.kind === "waved" ? (
+                f.body
+              ) : (
+                <button type="button" className="know-body" title="tap to correct it" onClick={() => setEditing({ id: f.id, text: f.body })}>
+                  {f.body}
+                </button>
+              )}
             </span>
-            <button type="button" className="know-x" aria-label={`Forget: ${f.name ?? f.body}`} onClick={() => forget(f.id)}>
+            <button type="button" className="know-x" aria-label={`Forget: ${f.name ?? f.body}`} onClick={() => forget(f)}>
               ×
             </button>
           </li>
         ))}
       </ul>
-      <p className="card-hint">all of it comes from your own bubbles. tap × if it got something wrong.</p>
+      <p className="card-hint">all of it comes from your own words. tap a line to correct it, × to make it forget.</p>
     </>
   );
 }
@@ -70,14 +109,20 @@ function Knowledge({ onForgot }: { onForgot?: () => void }) {
 /** A shelf, tapped: its name to change, and a few colours to paint it. */
 export function ShelfCard({ shelf, count, onClose, onChange, onForgot }: Props) {
   const [name, setName] = useState(shelf.name);
+  const [about, setAbout] = useState(shelf.about ?? "");
   useEscape(onClose);
   useEffect(() => setName(shelf.name), [shelf.name]);
+  useEffect(() => setAbout(shelf.about ?? ""), [shelf.about]);
 
   const nook = shelf.kind === "nook";
   const commit = () => {
     const clean = name.replace(/\s+/g, " ").trim();
     if (clean && clean !== shelf.name) onChange(shelf.id, { name: clean });
     else setName(shelf.name);
+  };
+  const commitAbout = () => {
+    const clean = about.replace(/\s+/g, " ").trim();
+    if (clean !== (shelf.about ?? "")) onChange(shelf.id, { about: clean });
   };
 
   return (
@@ -110,6 +155,31 @@ export function ShelfCard({ shelf, count, onClose, onChange, onForgot }: Props) 
               }}
             />
             <p className="card-note">{count === 1 ? "1 bubble on this shelf" : `${count} bubbles on this shelf`}</p>
+            <label className="about">
+              <span className="about-label">what belongs here</span>
+              <textarea
+                rows={3}
+                dir="auto"
+                value={about}
+                maxLength={160}
+                placeholder="the bird will write this once it has read the bubbles. or write it yourself."
+                onChange={(e) => setAbout(e.target.value)}
+                onBlur={commitAbout}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                  }
+                }}
+              />
+              <span className="about-by">
+                {shelf.about
+                  ? shelf.aboutBy === "you"
+                    ? "your words. the bird sorts by them."
+                    : "the bird wrote this. change it and it sorts by your words."
+                  : "the bird sorts new bubbles by this line."}
+              </span>
+            </label>
             <div className="swatches" role="radiogroup" aria-label="Colour">
               {SHELF_COLOR_KEYS.map((c) => (
                 <button
@@ -139,12 +209,14 @@ export function ShelfCard({ shelf, count, onClose, onChange, onForgot }: Props) 
 
 interface LinkProps {
   word: string;
+  /** The words in each of the two bubbles that made the bird link them. */
+  quotes?: [string, string] | null;
   onClose: () => void;
   onPop: () => void;
 }
 
 /** A link, tapped: what the bird saw, and a way to pop it if you disagree. */
-export function LinkCard({ word, onClose, onPop }: LinkProps) {
+export function LinkCard({ word, quotes, onClose, onPop }: LinkProps) {
   useEscape(onClose);
   return (
     <div className="card-veil" onClick={onClose}>
@@ -153,8 +225,16 @@ export function LinkCard({ word, onClose, onPop }: LinkProps) {
         <h2 className="card-title" dir="auto">
           “{word}”
         </h2>
+        {quotes && (
+          <div className="link-why">
+            <p className="card-hint">because one says</p>
+            <blockquote dir="auto">“{quotes[0]}”</blockquote>
+            <p className="card-hint">and the other says</p>
+            <blockquote dir="auto">“{quotes[1]}”</blockquote>
+          </div>
+        )}
         <footer className="card-foot">
-          <button className="pill ghost" onClick={onPop}>
+          <button className="pill ghost" onClick={onPop} title="the bird won't link these two again">
             pop the link
           </button>
           <button className="pill" onClick={onClose} autoFocus>

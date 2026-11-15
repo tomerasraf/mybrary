@@ -21,6 +21,8 @@ const MAX_BUBBLES = 50;
 const SAID_LINES = 12;
 /** How many of its last lines count as "talked about that one lately". */
 const RECENTLY = 4;
+/** How many waved-away questions the bird keeps in mind. */
+const WAVED_LINES = 10;
 
 /** The bubble the bird walks over to: one it hasn't looked at or talked about lately. */
 function pickBubble(bubbles: Thought[], avoid: number[], talkedAbout: (number | null)[]): Thought | undefined {
@@ -47,7 +49,10 @@ export async function POST(req: Request): Promise<Response> {
       const lately = said.slice(-RECENTLY).map((n) => n.thoughtId);
       const focus = born ?? pickBubble(bubbles, request.mode === "wander" ? request.avoid : [], lately);
       if (!focus) return fail("There are no bubbles yet.", 404);
-      const result = await ponder({ mode: request.mode, focus, bubbles, cards: getCards(db), knowledge: knowledgeText(db), said });
+      const result = await ponder({ mode: request.mode, focus, bubbles, cards: getCards(db), knowledge: knowledgeText(db),
+        said,
+        waved: recentNotes(db, "waved", WAVED_LINES).map((n) => n.body),
+      });
       addNote(db, "said", result.line, result.id);
       return ok({ id: result.id, line: result.line, links: result.links });
     });

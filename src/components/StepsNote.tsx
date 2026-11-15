@@ -9,6 +9,8 @@ interface Props {
   shelfOf: Map<number, string>;
   onDone: (id: number) => void;
   onDismiss: (id: number) => void;
+  /** Not now: it comes back in a few days. */
+  onLater: (id: number) => void;
   /** Opens the bubble a step came from. */
   onSource: (thoughtId: number) => void;
 }
@@ -17,7 +19,7 @@ interface Props {
 const TICK_MS = 650;
 
 /** The bird's little to-do slip: a few small steps it found in your bubbles. */
-export function StepsNote({ steps, shelfOf, onDone, onDismiss, onSource }: Props) {
+export function StepsNote({ steps, shelfOf, onDone, onDismiss, onLater, onSource }: Props) {
   const [ticked, setTicked] = useState<number[]>([]);
   if (steps.length === 0) return null;
 
@@ -40,11 +42,16 @@ export function StepsNote({ steps, shelfOf, onDone, onDismiss, onSource }: Props
                 <span className="step-body" dir="auto">
                   {s.body}
                 </span>
-                {s.thoughtId !== null && (
-                  <button type="button" className="step-from" onClick={() => onSource(s.thoughtId as number)}>
-                    {shelf ? `from “${shelf}”` : "from a bubble"}
+                <span className="step-under">
+                  {s.thoughtId !== null && (
+                    <button type="button" className="step-from" onClick={() => onSource(s.thoughtId as number)}>
+                      {shelf ? `from “${shelf}”` : "from a bubble"}
+                    </button>
+                  )}
+                  <button type="button" className="step-from" aria-label={`Later: ${s.body}`} onClick={() => onLater(s.id)}>
+                    later
                   </button>
-                )}
+                </span>
               </div>
               <button type="button" className="step-x" aria-label={`Not for me: ${s.body}`} onClick={() => onDismiss(s.id)}>
                 ×

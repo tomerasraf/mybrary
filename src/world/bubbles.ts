@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { fadedness } from "@/lib/aging";
 import type { Thought } from "@/lib/thoughts";
 import { Animator, damp, ease, lerp } from "./anim";
 import { blobShadowTexture, createBubbleMaterial, textTexture } from "./bubbleMaterial";
@@ -30,7 +31,13 @@ interface Bubble {
   /** Drawn radius right now. */
   scale: number;
   source: Thought["source"];
+  /** How faded with age it looks, 0..1. It brightens again while you look at it. */
+  faded: number;
 }
+
+/** How much of an old bubble's shine is gone. */
+const FADE = 0.55;
+const LABEL_OPACITY = 0.85;
 
 /** How quickly a floating bubble catches up with a new place. */
 const GLIDE = 1.8;
@@ -42,6 +49,8 @@ export class BubbleField {
   private bubbles = new Map<number, Bubble>();
   private hovered: number | null = null;
   private noticed = new Set<number>();
+  /** Bubbles you asked to see: found by a search, or used in the bird's answer. */
+  private marked = new Set<number>();
   private focused: number | null = null;
 
   constructor(
@@ -225,6 +234,11 @@ export class BubbleField {
     this.noticed = new Set(ids);
   }
 
+  /** Bubbles you asked to see (they glow until this is called again). */
+  setMarked(ids: readonly number[]): void {
+    this.marked = new Set(ids);
+  }
+
   isFloating(id: number): boolean {
     const b = this.bubbles.get(id);
     return b?.phase === "floating" && !b.held;
@@ -247,9 +261,15 @@ export class BubbleField {
     for (const b of this.bubbles.values()) {
       const u = b.material.uniforms;
       u.uTime.value = time;
-      b.glowTarget = b.id === this.focused ? 1 : b.id === this.hovered ? 0.6 : this.noticed.has(b.id) ? 0.75 : 0;
+      const pointedAt = this.noticed.has(b.id) || this.marked.has(b.id);
+      b.glowTarget = b.id === this.focused ? 1 : b.id === this.hovered ? 0.6 : pointedAt ? 0.75 : 0;
       b.glow = lerp(b.glow, b.glowTarget, 1 - Math.exp(-8 * dt));
       u.uGlow.value = b.glow;
+      if (b.faded > 0 && b.phase === "floating") {
+        const dim = 1 - FADE * b.faded * (1 - Math.min(1, b.glow / 0.6));
+        u.uOpacity.value = dim;
+        (b.label.material as THREE.SpriteMaterial).opacity = LABEL_OPACITY * dim;
+      }
 
       b.squish = Math.max(0, b.squish - dt * 2.2);
       if (b.held) {
@@ -328,6 +348,7 @@ export class BubbleField {
       squish: 0,
       scale: radius,
       source: thought.source,
+      faded: thought.source === "bird" ? 0 : fadedness(thought.createdAt),
     };
     this.scene.add(group, shadow);
     this.bubbles.set(thought.id, bubble);

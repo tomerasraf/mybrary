@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiResult } from "@/lib/api";
-import { POP, STEP_DONE, daysSince, greeting, pick } from "@/lib/bird/lines";
+import { LATER, LOOKING, NO_ANSWER, POP, STEP_DONE, TOLD, WAVED, daysSince, greeting, pick } from "@/lib/bird/lines";
 import type { ShelfColor } from "@/lib/colors";
 import type { Cluster, Library, Link, TidyResult } from "@/lib/library";
 import type { Step } from "@/lib/steps";
@@ -11,10 +11,12 @@ import type { Ponder, ThinkRequest } from "@/world/brain";
 import { loadMuted, setMuted, unlockAudio } from "@/world/sound";
 import { BirdSpeech, type Line } from "./BirdSpeech";
 import { Composer } from "./Composer";
+import { Find } from "./Find";
 import { Reader } from "./Reader";
 import { LinkCard, ShelfCard } from "./ShelfCard";
 import { StepsNote } from "./StepsNote";
 import { useWorld } from "./useWorld";
+import { WelcomeNote } from "./WelcomeNote";
 
 // A local model can take a while, especially the first time it loads.
 const THINK_TIMEOUT_MS = 45_000;
@@ -24,6 +26,8 @@ const WORK_TIMEOUT_MS = 75_000;
 const LATE_RESYNC_MS = 60_000;
 /** How long you can still answer the bird's question after it asks. */
 const QUESTION_OPEN_MS = 90_000;
+/** How long the bubbles behind the bird's answer keep glowing. */
+const ANSWER_GLOW_MS = 25_000;
 
 async function api<T>(url: string, init?: RequestInit, timeoutMs?: number): Promise<ApiResult<T>> {
   const ctl = new AbortController();
@@ -88,10 +92,11 @@ export function Mind({ initial }: { initial: Library }) {
     setTimeout(() => setToast((t) => (t === msg ? null : t)), 5000);
   }, []);
 
-  const say = useCallback((text: string, seconds: number) => {
+  /** `asks`: a line ending in "?" is a question you can answer. Not so for the bird's answers to you. */
+  const say = useCallback((text: string, seconds: number, asks = true) => {
     lineKey.current += 1;
     setLine({ key: lineKey.current, text, seconds });
-    if (text.trim().endsWith("?")) setQuestion(text.trim());
+    if (asks && text.trim().endsWith("?")) setQuestion(text.trim());
   }, []);
 
   // ---------- staying in line with what's saved ----------
@@ -153,8 +158,18 @@ export function Mind({ initial }: { initial: Library }) {
     return step;
   }, [resyncLater]);
 
+  const pattern = useCallback(async () => {
+    const res = await api<{ line: string; ids: number[] } | null>("/api/bird/pattern", { method: "POST" });
+    return res.success ? res.data : null;
+  }, []);
+
+  const aging = useCallback(async () => {
+    const res = await api<{ id: number; line: string } | null>("/api/bird/aging", { method: "POST" });
+    return res.success ? res.data : null;
+  }, []);
+
   const closeStep = useCallback(
-    async (id: number, status: "done" | "dismissed") => {
+    async (id: number, status: "done" | "dismissed" | "later") => {
       setSteps((list) => list.filter((s) => s.id !== id));
       const res = await api<Step>(`/api/steps/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
       if (!res.success) {
@@ -164,8 +179,73 @@ export function Mind({ initial }: { initial: Library }) {
       }
       // The bird wants to hear about it: its question can be answered into a new bubble.
       if (status === "done") say(pick(STEP_DONE), 8);
+      else if (status === "later") say(pick(LATER), 3);
     },
     [flash, resync, say],
+  );
+
+  // ---------- you, talking back (no bubble is made) ----------
+
+  const skipQuestion = useCallback(
+    async (q: string) => {
+      setQuestion((cur) => (cur === q ? null : cur));
+      setReplyTo((cur) => (cur === q ? null : cur));
+      say(pick(WAVED), 3);
+      const res = await api<unknown>("/api/bird/feedback", { method: "POST", body: JSON.stringify({ kind: "skip", question: q }) });
+      if (!res.success) flash(res.error);
+    },
+    [flash, say],
+  );
+
+  // Lights on a group of bubbles for a while, and (if asked) the camera on the newest of them.
+  const glowTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const show = useCallback((ids: number[], fly: boolean) => {
+    if (glowTimer.current) clearTimeout(glowTimer.current);
+    world.current?.mark(ids);
+    if (fly && ids.length) world.current?.flyTo(ids[ids.length - 1]);
+    glowTimer.current = ids.length === 0 ? null : setTimeout(() => world.current?.mark([]), ANSWER_GLOW_MS);
+    // `world` is a stable ref (declared below).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const askBird = useCallback(
+    async (question: string) => {
+      setBusy(true);
+      say(pick(LOOKING), 6, false);
+      const res = await api<{ answer: string | null; ids: number[] }>(
+        "/api/bird/ask",
+        { method: "POST", body: JSON.stringify({ question }) },
+        THINK_TIMEOUT_MS,
+      );
+      setBusy(false);
+      if (!res.success) {
+        flash(res.error);
+        return false;
+      }
+      if (res.data.answer) {
+        say(res.data.answer, 14, false);
+        // The camera stays put: flying off would take the bird, and its answer, out of view.
+        show(res.data.ids, false);
+      } else say(pick(NO_ANSWER), 5, false);
+      return true;
+    },
+    [flash, say, show],
+  );
+
+  const tellBird = useCallback(
+    async (text: string, about: string | null) => {
+      // A question is something to answer from the bubbles; anything else is something to remember.
+      if (text.trim().endsWith("?")) return askBird(text.trim());
+      const res = await api<unknown>("/api/bird/feedback", { method: "POST", body: JSON.stringify({ kind: "tell", text, about }) });
+      if (!res.success) {
+        flash(res.error);
+        return false;
+      }
+      if (about) setQuestion((cur) => (cur === about ? null : cur));
+      say(pick(TOLD), 3.5);
+      return true;
+    },
+    [askBird, flash, say],
   );
 
   // ---------- you, rearranging ----------
@@ -196,6 +276,8 @@ export function Mind({ initial }: { initial: Library }) {
     tidy,
     muse,
     suggest,
+    pattern,
+    aging,
     resync,
     onOpen,
     onOpenCluster,
@@ -215,7 +297,7 @@ export function Mind({ initial }: { initial: Library }) {
   };
 
   const changeShelf = useCallback(
-    async (id: number, patch: { name?: string; color?: ShelfColor }) => {
+    async (id: number, patch: { name?: string; color?: ShelfColor; about?: string }) => {
       const res = await api<Cluster>(`/api/clusters/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
       if (!res.success) {
         flash(res.error);
@@ -308,7 +390,7 @@ export function Mind({ initial }: { initial: Library }) {
   return (
     <main className="mind" onPointerDown={unlockAudio}>
       <canvas ref={canvas} className="world" />
-      <BirdSpeech line={line} anchor={anchor} onAnswer={(q) => setReplyTo(q)} />
+      <BirdSpeech line={line} anchor={anchor} onAnswer={(q) => setReplyTo(q)} onSkip={(q) => void skipQuestion(q)} />
 
       <button
         className="round sound"
@@ -322,11 +404,20 @@ export function Mind({ initial }: { initial: Library }) {
         <SpeakerIcon muted={muted} />
       </button>
       {mine > 0 && <p className="count">{mine === 1 ? "1 bubble" : `${mine} bubbles`}</p>}
+      {mine > 0 && (
+        <Find thoughts={thoughts} onMark={(ids) => world.current?.mark(ids)} onFly={(id) => world.current?.flyTo(id)} />
+      )}
+      <WelcomeNote
+        openSteps={steps.length}
+        onOpen={(id) => thoughts.some((t) => t.id === id) && setOpenId(id)}
+        onShow={(ids) => show(ids, true)}
+      />
       <StepsNote
         steps={steps}
         shelfOf={shelfOf}
         onDone={(id) => void closeStep(id, "done")}
         onDismiss={(id) => void closeStep(id, "dismissed")}
+        onLater={(id) => void closeStep(id, "later")}
         onSource={(id) => thoughts.some((t) => t.id === id) && setOpenId(id)}
       />
 
@@ -342,6 +433,8 @@ export function Mind({ initial }: { initial: Library }) {
         question={question}
         replyTo={replyTo}
         onReply={setReplyTo}
+        onSkip={(q) => void skipQuestion(q)}
+        onTell={tellBird}
         onComposing={onComposing}
         onKeystroke={onKeystroke}
         onRelease={onRelease}
@@ -363,7 +456,7 @@ export function Mind({ initial }: { initial: Library }) {
           onForgot={resync}
         />
       )}
-      {link && <LinkCard word={link.word} onClose={() => setOpenLink(null)} onPop={() => void popLink(link.id)} />}
+      {link && <LinkCard word={link.word} quotes={link.quotes} onClose={() => setOpenLink(null)} onPop={() => void popLink(link.id)} />}
     </main>
   );
 }

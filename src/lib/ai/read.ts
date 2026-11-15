@@ -7,6 +7,7 @@ import { grounded, mentions, nameKey } from "./ground";
 import { askJson } from "./llm";
 import { languageOf } from "./ponder";
 import { BusyError, oneAtATime } from "./queue";
+import { describeOne, shelfToDescribe } from "./shelves";
 
 // The bird reads a whole bubble, once, and keeps a card about it. Everything else it does works
 // from these cards, so it knows what a long bubble is really about instead of only its first line.
@@ -174,7 +175,11 @@ export async function readThought(db: DB, thought: Thought): Promise<Reading> {
 
 // ---------- reading in the background ----------
 
-const state = globalThis as unknown as { __birdReading?: boolean; __birdReadFails?: Map<number, number> };
+const state = globalThis as unknown as {
+  __birdReading?: boolean;
+  __birdReadFails?: Map<number, number>;
+  __birdShelfTried?: Set<number>;
+};
 const MAX_TRIES = 2;
 const BUSY_WAIT_MS = 6000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -198,19 +203,30 @@ export function startReading(db: DB, delayMs = 0): void {
       if (delayMs > 0) await sleep(delayMs);
       for (;;) {
         const [next] = waitingToBeRead(db);
-        if (!next) return;
+        // With everything read, it writes down what each shelf holds (one try per shelf per run).
+        const tried = (state.__birdShelfTried ??= new Set());
+        const shelf = next ? null : [shelfToDescribe(db)].find((s) => s && !tried.has(s.id));
+        if (!next && !shelf) return;
         try {
-          await oneAtATime(() => readThought(db, next));
+          if (next) await oneAtATime(() => readThought(db, next));
+          else if (shelf) {
+            tried.add(shelf.id);
+            await oneAtATime(() => describeOne(db, shelf));
+          }
         } catch (error) {
           if (error instanceof BusyError) {
+            if (shelf) tried.delete(shelf.id);
             await sleep(BUSY_WAIT_MS);
             continue;
           }
-          console.error(`[bird] couldn't read bubble ${next.id}`, error);
-          fails.set(next.id, (fails.get(next.id) ?? 0) + 1);
+          if (next) {
+            console.error(`[bird] couldn't read bubble ${next.id}`, error);
+            fails.set(next.id, (fails.get(next.id) ?? 0) + 1);
+          } else console.error("[bird] couldn't describe a shelf", error);
         }
       }
     } finally {
+      state.__birdShelfTried = new Set();
       state.__birdReading = false;
     }
   })();

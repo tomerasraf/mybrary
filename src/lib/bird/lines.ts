@@ -79,3 +79,24 @@ export const PLANNING = ["what could you do about these…", "let me find a smal
 export const STEP_DONE = ["you did it! how did it go?", "done! what happened?", "one less bubble to carry. how was it?"] as const;
 
 export const WROTE = ["wrote something for you. it's on my shelf", "a thought of my own! come read it", "i put a thought on my shelf"] as const;
+
+// ---------- you, talking back ----------
+
+/** You waved a question away. (None of these may end in a question mark.) */
+export const WAVED = ["ok, not that one.", "fair. i won't ask that again.", "*crosses it out*", "oops. forget i asked."] as const;
+
+/** You told the bird something, just for it. */
+export const TOLD = ["got it. i'll remember.", "*writes it on its wing*", "noted, just for me.", "mm. i'll keep that in mind."] as const;
+
+/** You asked the bird something: it goes to look. */
+export const LOOKING = ["let me look…", "hold on, i'll check the bubbles…", "*flips through the library*"] as const;
+
+/** Your bubbles don't answer what you asked. */
+export const NO_ANSWER = [
+  "none of your bubbles say. i won't guess.",
+  "i looked. it isn't in the bubbles yet.",
+  "hm. you never told me that one.",
+] as const;
+
+/** You put a step off. */
+export const LATER = ["ok. i'll bring it back in a few days.", "later it is.", "*tucks it under a wing*"] as const;

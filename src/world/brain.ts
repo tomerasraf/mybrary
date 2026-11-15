@@ -32,6 +32,10 @@ export interface BrainHooks {
   muse: () => Promise<Thought | null>;
   /** Ask the brain for one small thing to do about a shelf. Null when it has nothing. */
   suggest: () => Promise<Step | null>;
+  /** Something that keeps coming back in your bubbles, counted, not guessed. Null when there's nothing new. */
+  pattern: () => Promise<{ line: string; ids: number[] } | null>;
+  /** An old bubble to ask about. Null when none is old enough. */
+  aging: () => Promise<{ id: number; line: string } | null>;
   /** Re-read the saved library and bring the world in line with it. */
   resync: () => void;
 }
@@ -57,6 +61,10 @@ const STEP_FIRST_MS = 150_000;
 const STEP_COOLDOWN_MS = 8 * 60_000;
 /** When the bird had nothing to suggest (still reading, say), it tries again sooner. */
 const STEP_RETRY_MS = 2 * 60_000;
+const PATTERN_FIRST_MS = 60_000;
+const PATTERN_COOLDOWN_MS = 6 * 60_000;
+const DUST_FIRST_MS = 4 * 60_000;
+const DUST_COOLDOWN_MS = 15 * 60_000;
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
 /** Decides what the bird is doing, one behaviour at a time. */
@@ -73,6 +81,8 @@ export class Brain {
   private lastMuse = Date.now() - MUSE_COOLDOWN_MS + MUSE_FIRST_MS;
   private museSeen = -1;
   private lastStep = Date.now() - STEP_COOLDOWN_MS + STEP_FIRST_MS;
+  private lastPattern = Date.now() - PATTERN_COOLDOWN_MS + PATTERN_FIRST_MS;
+  private lastDust = Date.now() - DUST_COOLDOWN_MS + DUST_FIRST_MS;
   private motor: Motor;
   private librarian: Librarian;
 
@@ -158,6 +168,8 @@ export class Brain {
         else if (this.lib.personCount === 0) await this.bored(signal);
         else if (this.wantsToTidy()) await this.tidyUp(signal);
         else if (this.wantsToSuggest()) await this.suggestStep(signal);
+        else if (Date.now() - this.lastPattern > PATTERN_COOLDOWN_MS) await this.noticePattern(signal);
+        else if (Date.now() - this.lastDust > DUST_COOLDOWN_MS) await this.dustOff(signal);
         else if (this.wantsToMuse()) await this.writeSomething(signal);
         else await this.roam(signal);
       } catch (error) {
@@ -250,6 +262,54 @@ export class Brain {
     await this.motor.hop(2, 0.12);
     await this.animator.wait(6, signal);
     this.bird.lookUp = 0;
+  }
+
+  /** Walks over to a bubble and looks up at it. False when it can't be reached right now. */
+  private async goLookAt(id: number, signal: AbortSignal): Promise<boolean> {
+    const at = this.bubbles.isFloating(id) ? this.bubbles.position(id) : null;
+    if (!at) return false;
+    // Stand a little in front of the bubble (toward the centre) so you can see the bird look up at it.
+    const spot = clampToRing({ x: at.x * 0.82, z: at.z * 0.82 }, 1.4, 7);
+    await this.motor.walkTo(new THREE.Vector3(spot.x, 0, spot.z), signal, 0.75);
+    await this.motor.faceToward(at, signal);
+    this.bird.lookUp = 1;
+    await this.animator.wait(0.8, signal);
+    return true;
+  }
+
+  /** Something keeps coming back: the bird counted, and shows you the bubbles. */
+  private async noticePattern(signal: AbortSignal): Promise<void> {
+    this.lastPattern = Date.now();
+    const found = await this.hooks.pattern().catch(() => null);
+    if (!found || signal.aborted) return;
+    const newest = [...found.ids].reverse().find((id) => this.bubbles.isFloating(id));
+    if (newest === undefined || !(await this.goLookAt(newest, signal))) return;
+    sound.chirp(true);
+    this.say(found.line, 8);
+    await this.animator.wait(2.5, signal);
+    await this.pointOut(found.ids, signal);
+    this.bird.lookUp = 0;
+    await this.animator.wait(2, signal);
+  }
+
+  /** An old bubble: the bird dusts it off and asks if it's still true. */
+  private async dustOff(signal: AbortSignal): Promise<void> {
+    this.lastDust = Date.now();
+    const old = await this.hooks.aging().catch(() => null);
+    if (!old || signal.aborted) return;
+    if (!(await this.goLookAt(old.id, signal))) return;
+    this.bubbles.jiggle(old.id, 1.2);
+    this.bubbles.setNoticed([old.id]);
+    try {
+      this.bird.flap = 0.6;
+      await this.animator.wait(0.7, signal);
+      this.bird.flap = 0;
+      this.say(old.line, 10);
+      await this.animator.wait(8, signal);
+    } finally {
+      this.bubbles.setNoticed([]);
+      this.bird.lookUp = 0;
+    }
   }
 
   private async writeSomething(signal: AbortSignal): Promise<void> {
@@ -423,7 +483,8 @@ export class Brain {
     page.getWorldPosition(world);
     b.holder.remove(page);
     page.position.copy(world);
-    page.rotation.set(0, 0, 0);
+    // Edge-on to the slot, the way the bird was holding it (the slot runs left to right).
+    page.rotation.set(0, Math.PI / 2, 0);
     b.root.parent?.add(page);
     const slot = this.machine.slot;
     const from = world.clone();

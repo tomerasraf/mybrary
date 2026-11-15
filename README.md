@@ -41,6 +41,22 @@ It reads every bubble to the end, remembers the names in it, and only says what 
   </tr>
 </table>
 
+## Talk to the bird
+
+Tap the little bird button next to the mic. Nothing you say there becomes a bubble.
+
+| | |
+|---|---|
+| 💬 **Ask it** | "what did I say about the trip?" It answers only from your bubbles, and they glow. |
+| 📝 **Tell it** | "keep work and home apart." It remembers, and sorts by it. |
+| 🙅 **Wave a question away** | "not this one", and it won't ask that again. |
+| ❓ **Ask why** | Open a bubble or a link to see the words it went by. |
+| 🏷️ **Name what belongs** | Every shelf has one line saying what goes on it. Yours beats the bird's. |
+| 🔍 **Find** | Type a word. Matching bubbles glow and the camera flies over. |
+| 🔁 **What keeps coming back** | It counts names across the month's bubbles. It doesn't guess. |
+| 💤 **Later** | Put a small step off, and it comes back in a few days. |
+| 🕰️ **Old bubbles fade** | The bird dusts one off and asks if it's still true. |
+
 ## Get it running
 
 You need [Node.js](https://nodejs.org) and [Ollama](https://ollama.com/download).

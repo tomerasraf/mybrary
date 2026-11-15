@@ -36,6 +36,12 @@ export function Reader({ thought, shelf, onClose, onLetGo }: Props) {
           <span className="stamp">{bird ? "the bird wrote this" : thought.source === "spoken" ? "said out loud" : "written"}</span>
         </header>
         {shelf && !bird && <p className="page-shelf">on the shelf: {shelf}</p>}
+        {shelf && !bird && thought.placedBy === "bird" && thought.why && (
+          <details className="page-why">
+            <summary>why here?</summary>
+            <p dir="auto">the bird: {thought.why}</p>
+          </details>
+        )}
         {thought.prompt && (
           <p className="page-prompt" dir="auto">
             the bird asked: {thought.prompt}

@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { Cluster, Library } from "@/lib/library";
 import type { PlacedBy, Thought } from "@/lib/thoughts";
-import { Animator, damp } from "./anim";
+import { Animator, damp, lerp } from "./anim";
 import { Bird } from "./bird";
 import { Brain, type BrainHooks } from "./brain";
 import { Desk } from "./desk";
@@ -32,6 +32,10 @@ export interface WorldHandle {
   updateCluster: (cluster: Cluster) => void;
   moveBubble: (id: number, clusterId: number | null, by: PlacedBy | null) => void;
   removeLink: (id: number) => void;
+  /** Makes these bubbles glow until told otherwise (a search, the bird's answer). */
+  mark: (ids: readonly number[]) => void;
+  /** Flies the camera to a bubble. Null flies it back to the middle. */
+  flyTo: (id: number | null) => void;
   /** Bring the world in line with the library as saved. */
   sync: (library: Library) => void;
   /** Screen position (CSS px) just above the bird's head. */
@@ -44,6 +48,9 @@ const TAP_SLOP_PX = 8;
 const MIN_VIEW_DISTANCE = 7.2;
 const MAX_VIEW_DISTANCE = 28;
 const TAP_MS = 350;
+/** How close the camera gets to a bubble it flies to. */
+const FLY_DISTANCE = 6.2;
+const HOME = new THREE.Vector3(1.5, 1.45, 0.6);
 
 export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): WorldHandle {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: "high-performance" });
@@ -60,7 +67,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   camera.position.set(2.6, 2.9, 7.6);
 
   const controls = new OrbitControls(camera, canvas);
-  controls.target.set(1.5, 1.45, 0.6);
+  controls.target.copy(HOME);
   controls.enableDamping = true;
   controls.dampingFactor = 0.06;
   controls.minDistance = 3;
@@ -184,6 +191,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
       canvas.setPointerCapture(e.pointerId);
     }
     controls.autoRotate = false;
+    fly = null;
     idleSince = performance.now();
   };
 
@@ -261,6 +269,19 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     camera.position.copy(controls.target).add(fromTarget);
   };
 
+  // Flying to a bubble you looked for, and back to the middle afterwards.
+  let fly: { to: THREE.Vector3; dist: number | null } | null = null;
+  const flyStep = (dt: number) => {
+    if (!fly) return;
+    fromTarget.subVectors(camera.position, controls.target);
+    const k = 1 - Math.exp(-3.2 * dt);
+    controls.target.lerp(fly.to, k);
+    if (fly.dist !== null) fromTarget.setLength(lerp(fromTarget.length(), fly.dist, k));
+    camera.position.copy(controls.target).add(fromTarget);
+    const there = controls.target.distanceTo(fly.to) < 0.02;
+    if (there && (fly.dist === null || Math.abs(fromTarget.length() - fly.dist) < 0.05)) fly = null;
+  };
+
   // ---------- loop ----------
   let last = performance.now();
   let time = 0;
@@ -271,8 +292,13 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     const dt = Math.min((now - last) / 1000, 1 / 20);
     last = now;
     time += dt;
-    if (!controls.autoRotate && performance.now() - idleSince > 20_000) controls.autoRotate = true;
-    if (controls.autoRotate) frameLibrary(dt);
+    if (!controls.autoRotate && performance.now() - idleSince > 20_000) {
+      controls.autoRotate = true;
+      // Left looking at one bubble: drift back to the middle before turning again.
+      if (controls.target.distanceTo(HOME) > 0.05) fly = { to: HOME.clone(), dist: null };
+    }
+    flyStep(dt);
+    if (controls.autoRotate && !fly) frameLibrary(dt);
     animator.update(dt);
     tube.update(dt, time);
     machine.update(dt, time);
@@ -300,6 +326,13 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     moveBubble: (id, clusterId, by) => library.move(id, clusterId, by),
     sync: (lib) => library.sync(lib),
     removeLink: (id) => void library.links.remove(id),
+    mark: (ids) => bubbles.setMarked(ids),
+    flyTo: (id) => {
+      const at = id === null ? null : bubbles.position(id);
+      controls.autoRotate = false;
+      idleSince = performance.now();
+      fly = at ? { to: at.clone(), dist: FLY_DISTANCE } : { to: HOME.clone(), dist: null };
+    },
     birdAnchor: () => {
       bird.headTop(anchor).project(camera);
       const visible = anchor.z < 1 && Math.abs(anchor.x) < 1.2 && Math.abs(anchor.y) < 1.2;

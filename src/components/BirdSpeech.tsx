@@ -13,13 +13,15 @@ interface Props {
   anchor: () => { x: number; y: number; visible: boolean } | null;
   /** Tapping one of the bird's questions starts an answer. */
   onAnswer: (question: string) => void;
+  /** You don't want this question. */
+  onSkip: (question: string) => void;
 }
 
 const SCREEN_MARGIN = 12;
 const isQuestion =(text: string) => text.trim().endsWith("?");
 
 /** The bird's little thought bubbles: they follow its head, then drift up and vanish. */
-export function BirdSpeech({ line, anchor, onAnswer }: Props) {
+export function BirdSpeech({ line, anchor, onAnswer, onSkip }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const [shown, setShown] = useState<Line | null>(null);
   const [leaving, setLeaving] = useState(false);
@@ -61,10 +63,22 @@ export function BirdSpeech({ line, anchor, onAnswer }: Props) {
       {shown && (
         <div key={shown.key} className="speech" data-leaving={leaving || undefined} dir="auto">
           {isQuestion(shown.text) ? (
-            <button type="button" className="speech-ask" onClick={() => onAnswer(shown.text.trim())}>
-              <span className="speech-text">{shown.text}</span>
-              <span className="speech-hint">tap to answer</span>
-            </button>
+            <>
+              <button type="button" className="speech-ask" onClick={() => onAnswer(shown.text.trim())}>
+                <span className="speech-text">{shown.text}</span>
+                <span className="speech-hint">tap to answer</span>
+              </button>
+              <button
+                type="button"
+                className="speech-skip"
+                onClick={() => {
+                  setShown(null);
+                  onSkip(shown.text.trim());
+                }}
+              >
+                not this one
+              </button>
+            </>
           ) : (
             <span className="speech-text">{shown.text}</span>
           )}
