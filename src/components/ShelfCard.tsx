@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { SHELF_COLORS, SHELF_COLOR_KEYS, type ShelfColor } from "@/lib/colors";
+import type { ApiResult } from "@/lib/api";
+import type { Fact } from "@/lib/knowledge";
 import type { Cluster } from "@/lib/library";
 
 interface Props {
@@ -10,6 +12,8 @@ interface Props {
   count: number;
   onClose: () => void;
   onChange: (id: number, patch: { name?: string; color?: ShelfColor }) => void;
+  /** You made the bird forget something. */
+  onForgot?: () => void;
 }
 
 function useEscape(onClose: () => void) {
@@ -20,8 +24,51 @@ function useEscape(onClose: () => void) {
   }, [onClose]);
 }
 
+/** What the bird knows for sure, with a way to make it forget anything it got wrong. */
+function Knowledge({ onForgot }: { onForgot?: () => void }) {
+  const [facts, setFacts] = useState<Fact[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/knowledge")
+      .then((r) => r.json() as Promise<ApiResult<Fact[]>>)
+      .then((res) => alive && setFacts(res.success ? res.data : []))
+      .catch(() => alive && setFacts([]));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const forget = (id: number) => {
+    setFacts((list) => list?.filter((f) => f.id !== id) ?? null);
+    void fetch(`/api/knowledge/${id}`, { method: "DELETE" }).then(() => onForgot?.());
+  };
+
+  if (!facts) return null;
+  if (facts.length === 0) return <p className="card-hint">it hasn&apos;t learned any names yet. it reads every new bubble.</p>;
+  return (
+    <>
+      <h3 className="know-title">what it knows</h3>
+      <ul className="know">
+        {facts.map((f) => (
+          <li key={f.id} data-rule={f.kind === "rule" || undefined}>
+            <span dir="auto">
+              {f.kind === "rule" ? <b>you told it: </b> : <b>{f.name}: </b>}
+              {f.body}
+            </span>
+            <button type="button" className="know-x" aria-label={`Forget: ${f.name ?? f.body}`} onClick={() => forget(f.id)}>
+              ×
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="card-hint">all of it comes from your own bubbles. tap × if it got something wrong.</p>
+    </>
+  );
+}
+
 /** A shelf, tapped: its name to change, and a few colours to paint it. */
-export function ShelfCard({ shelf, count, onClose, onChange }: Props) {
+export function ShelfCard({ shelf, count, onClose, onChange, onForgot }: Props) {
   const [name, setName] = useState(shelf.name);
   useEscape(onClose);
   useEffect(() => setName(shelf.name), [shelf.name]);
@@ -43,6 +90,7 @@ export function ShelfCard({ shelf, count, onClose, onChange }: Props) {
               the bird writes here about its library: what it sees in your bubbles, and what you might do about them. tap a bubble inside to
               read it.
             </p>
+            <Knowledge onForgot={onForgot} />
           </>
         ) : (
           <>

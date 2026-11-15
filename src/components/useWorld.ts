@@ -32,6 +32,7 @@ export function useWorld(canvas: RefObject<HTMLCanvasElement | null>, initial: L
           think: (req) => hooksRef.current.think(req),
           tidy: () => hooksRef.current.tidy(),
           muse: () => hooksRef.current.muse(),
+          suggest: () => hooksRef.current.suggest(),
           resync: () => hooksRef.current.resync(),
           onOpen: (id) => hooksRef.current.onOpen(id),
           onOpenCluster: (id) => hooksRef.current.onOpenCluster(id),

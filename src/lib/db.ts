@@ -36,6 +36,38 @@ CREATE TABLE IF NOT EXISTS links (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   UNIQUE (a, b)
 );
+-- What the bird took from a bubble when it read the whole thing.
+CREATE TABLE IF NOT EXISTS cards (
+  thought_id INTEGER PRIMARY KEY,
+  gist TEXT NOT NULL,
+  subjects TEXT NOT NULL DEFAULT '[]',
+  feelings TEXT NOT NULL DEFAULT '[]',
+  todos TEXT NOT NULL DEFAULT '[]',
+  -- Whether the bird has decided where this bubble goes since reading it.
+  sorted INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+-- What the bird knows for sure, in your own words. 'fact': a person, project or place. 'rule': something you told it to do.
+CREATE TABLE IF NOT EXISTS facts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL DEFAULT 'fact',
+  key TEXT,
+  name TEXT,
+  body TEXT NOT NULL,
+  thought_id INTEGER,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS facts_key ON facts (key) WHERE key IS NOT NULL;
+-- Small things the bird suggests you do, taken from your bubbles.
+CREATE TABLE IF NOT EXISTS steps (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  body TEXT NOT NULL,
+  thought_id INTEGER,
+  cluster_id INTEGER,
+  status TEXT NOT NULL DEFAULT 'open',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  closed_at TEXT
+);
 `;
 
 /** Columns added after the first release. */
@@ -46,6 +78,12 @@ function migrate(db: Database.Database): void {
   // The shelf a bubble sits on, and who put it there ('bird' or 'you'). The bird never moves what you placed.
   if (!cols.some((c) => c.name === "cluster_id")) db.exec("ALTER TABLE thoughts ADD COLUMN cluster_id INTEGER");
   if (!cols.some((c) => c.name === "placed_by")) db.exec("ALTER TABLE thoughts ADD COLUMN placed_by TEXT");
+  // The bird's old notebook was full of guesses about you that it then took for facts, and its old lines
+  // repeated them. It starts over, and keeps facts from your own words now.
+  if ((db.pragma("user_version", { simple: true }) as number) < 1) {
+    db.exec("DELETE FROM notes");
+    db.pragma("user_version = 1");
+  }
   // The bird's nook always exists.
   const nook = db.prepare("SELECT id FROM clusters WHERE kind = 'nook'").get();
   if (!nook) db.prepare("INSERT INTO clusters (name, color, kind) VALUES (?, 'butter', 'nook')").run("the bird's thoughts");

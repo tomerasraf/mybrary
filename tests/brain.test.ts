@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildUser, languageOf, parsePonder, problemWith, schemaFor, tooSimilar, type PonderInput } from "@/lib/ai/ponder";
+import { PONDER_SCHEMA, buildUser, languageOf, parsePonder, problemWith, tooSimilar, type PonderInput } from "@/lib/ai/ponder";
 import { brainConfig, cleanJsonText, providerOrder } from "@/lib/ai/llm";
 import { createDb } from "@/lib/db";
 import { NOTEBOOK_KEEP, addNote, recentNotes } from "@/lib/notebook";
@@ -15,11 +15,14 @@ const t = (id: number, body: string, prompt: string | null = null): Thought => (
   createdAt: "2026-11-14T10:00:00.000Z",
 });
 
+const BUBBLES = [t(1, "scared to finish the game"), t(2, "i miss cooking for friends"), t(3, "new city, no one knows me")];
+
 const base = (over: Partial<PonderInput> = {}): PonderInput => ({
   mode: "wander",
-  bubbles: [t(1, "scared to finish the game"), t(2, "i miss cooking for friends"), t(3, "new city, no one knows me")],
-  avoid: [],
-  notes: [],
+  focus: BUBBLES[1],
+  bubbles: BUBBLES,
+  cards: new Map(),
+  knowledge: "",
   said: [],
   ...over,
 });
@@ -41,36 +44,35 @@ describe("brain config", () => {
 });
 
 describe("pondering", () => {
-  it("only asks for a visit when wandering", () => {
-    expect((schemaFor("wander").required as string[]).includes("visit")).toBe(true);
-    expect((schemaFor("new").required as string[]).includes("visit")).toBe(false);
+  it("asks for the detail before the line", () => {
+    expect(PONDER_SCHEMA.required).toEqual(["detail", "line", "links"]);
   });
 
-  it("puts the notebook, past lines, avoided bubbles and the bird's question in the prompt", () => {
+  it("puts what it knows, past lines, the other bubbles' summaries and the whole bubble in the prompt", () => {
+    const long = t(4, `${"word ".repeat(500)}the very end`, 'what do you "really" want?');
     const user = buildUser(
       base({
-        avoid: [2],
-        notes: [{ id: 1, kind: "note", body: "they fear endings", thoughtId: 1, createdAt: "" }],
+        focus: long,
+        bubbles: [...BUBBLES, long],
+        knowledge: "<what_you_know>\n- Dana: my sister\n</what_you_know>",
+        cards: new Map([[1, { thoughtId: 1, gist: "they are afraid to finish their game", subjects: [], feelings: [], todos: [], sorted: false }]]),
         said: [{ id: 2, kind: "said", body: "this one again", thoughtId: 1, createdAt: "" }],
-        bubbles: [t(1, "a"), t(4, "b", 'what do you "really" want?')],
       }),
     );
-    expect(user).toContain("they fear endings");
+    expect(user).toContain("Dana: my sister");
     expect(user).toContain("this one again");
-    expect(user).toContain("Don't choose 2.");
+    expect(user).toContain('<bubble id="1">they are afraid to finish their game</bubble>');
+    expect(user).toContain('<bubble id="2">i miss cooking for friends</bubble>');
+    expect(user).toContain("the very end");
     expect(user).toContain(`answering="what do you 'really' want?"`);
+    expect(user).toContain("You walked over to this bubble");
     const answer = buildUser(base({ mode: "new", focus: t(4, "b", "what do you want?") }));
     expect(answer).toContain("their answer to your question");
   });
 
-  it("keeps only real bubbles and falls back when the model picks a bad one", () => {
-    const ok = parsePonder({ visit: "2", line: ' "you cook, you build… both feed people?" ', note: "x", links: [2, 3, 3, 99] }, base());
-    expect(ok).toEqual({ id: 2, line: "you cook, you build… both feed people?", note: "x", links: [3] });
-    const bad = parsePonder({ visit: 99, line: "hm" }, base({ avoid: [1] }));
-    expect(bad.id).toBe(2);
-    expect(bad.links).toEqual([]);
-    const born = parsePonder({ visit: 3, line: "welcome", links: [4] }, base({ mode: "new", focus: t(4, "new one") }));
-    expect(born.id).toBe(4);
+  it("speaks about the bubble it was given, and links only real ones", () => {
+    const ok = parsePonder({ detail: "cooking for friends", line: ' "who sat at your table?" ', links: [2, 3, 3, 99] }, base());
+    expect(ok).toEqual({ id: 2, line: "who sat at your table?", links: [3], detail: "cooking for friends" });
     expect(() => parsePonder({ line: "   " }, base())).toThrow();
     expect(parsePonder({ line: "x".repeat(400) }, base()).line.length).toBeLessThanOrEqual(161);
   });
@@ -95,28 +97,31 @@ describe("keeping the bird honest", () => {
     ).toBe(false);
   });
 
-  it("flags a line in the wrong language or one it already said", () => {
-    const input = base({ bubbles: [t(1, "אני מתחיל דברים ולא מסיים"), t(2, "i miss cooking")], said: [{ id: 1, kind: "said", body: "cooking for friends is a kind of home", thoughtId: 2, createdAt: "" }] });
-    expect(problemWith({ id: 1, line: "you start things", note: "", links: [] }, input)).toMatch(/Hebrew/);
-    expect(problemWith({ id: 1, line: "אתה מתחיל ולא מסיים", note: "", links: [] }, input)).toBeNull();
-    expect(problemWith({ id: 2, line: "cooking for friends is your kind of home", note: "", links: [] }, input)).toMatch(/already said/);
-    expect(problemWith({ id: 2, line: "who used to eat at your table?", note: "", links: [] }, input)).toBeNull();
+  it("flags a made-up detail, the wrong language, or a line it already said", () => {
+    const hebrew = t(1, "אני מתחיל דברים ולא מסיים");
+    const said = [{ id: 1, kind: "said" as const, body: "cooking for friends is a kind of home", thoughtId: 2, createdAt: "" }];
+    const he = base({ focus: hebrew, bubbles: [hebrew, BUBBLES[1]], said });
+    const en = base({ said });
+    const line = (text: string, detail: string) => ({ id: 0, line: text, links: [], detail });
+    expect(problemWith(line("you start things", "מתחיל דברים ולא מסיים"), he)).toMatch(/Hebrew/);
+    expect(problemWith(line("אתה מתחיל ולא מסיים", "מתחיל דברים ולא מסיים"), he)).toBeNull();
+    expect(problemWith(line("who sat at your table?", "i fear nobody likes my food"), en)).toMatch(/copied exactly/);
+    expect(problemWith(line("cooking for friends is your kind of home", "cooking for friends"), en)).toMatch(/already said/);
+    expect(problemWith(line("who used to eat at your table?", "cooking for friends"), en)).toBeNull();
   });
 });
 
 describe("notebook", () => {
   it("keeps pages in order, skips blanks and repeats, and forgets the oldest", () => {
     const db = createDb(":memory:");
-    expect(addNote(db, "note", "  they   fear endings ")?.body).toBe("they fear endings");
-    expect(addNote(db, "note", "They fear endings")).toBeNull();
-    expect(addNote(db, "note", "   ")).toBeNull();
-    addNote(db, "said", "hello");
-    addNote(db, "note", "they love feeding people");
-    expect(recentNotes(db, "note", 5).map((n) => n.body)).toEqual(["they fear endings", "they love feeding people"]);
-    expect(recentNotes(db, "said", 5)).toHaveLength(1);
-    for (let i = 0; i < NOTEBOOK_KEEP + 5; i++) addNote(db, "note", `page ${i}`);
-    expect(recentNotes(db, "note", 1000)).toHaveLength(NOTEBOOK_KEEP);
-    expect(recentNotes(db, "note", 1)[0].body).toBe(`page ${NOTEBOOK_KEEP + 4}`);
+    expect(addNote(db, "said", "  ooh,   sourdough ")?.body).toBe("ooh, sourdough");
+    expect(addNote(db, "said", "Ooh, sourdough")).toBeNull();
+    expect(addNote(db, "said", "   ")).toBeNull();
+    addNote(db, "said", "which box first?");
+    expect(recentNotes(db, "said", 5).map((n) => n.body)).toEqual(["ooh, sourdough", "which box first?"]);
+    for (let i = 0; i < NOTEBOOK_KEEP + 5; i++) addNote(db, "said", `page ${i}`);
+    expect(recentNotes(db, "said", 1000)).toHaveLength(NOTEBOOK_KEEP);
+    expect(recentNotes(db, "said", 1)[0].body).toBe(`page ${NOTEBOOK_KEEP + 4}`);
   });
 
   it("stores the bird's question with an answer", () => {

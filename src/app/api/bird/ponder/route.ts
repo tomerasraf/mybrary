@@ -3,10 +3,12 @@ import { fail, ok } from "@/lib/api";
 import { friendlyBrainError } from "@/lib/ai/llm";
 import { RepeatError, ponder } from "@/lib/ai/ponder";
 import { BusyError, oneAtATime } from "@/lib/ai/queue";
+import { getCards } from "@/lib/cards";
 import { getDb } from "@/lib/db";
+import { knowledgeText } from "@/lib/knowledge";
 import { personThoughts } from "@/lib/library";
 import { addNote, recentNotes } from "@/lib/notebook";
-import { getThought, listThoughts } from "@/lib/thoughts";
+import { getThought, listThoughts, type Thought } from "@/lib/thoughts";
 
 export const runtime = "nodejs";
 
@@ -16,31 +18,37 @@ const Body = z.discriminatedUnion("mode", [
 ]);
 
 const MAX_BUBBLES = 50;
-const NOTEBOOK_PAGES = 25;
 const SAID_LINES = 12;
+/** How many of its last lines count as "talked about that one lately". */
+const RECENTLY = 4;
+
+/** The bubble the bird walks over to: one it hasn't looked at or talked about lately. */
+function pickBubble(bubbles: Thought[], avoid: number[], talkedAbout: (number | null)[]): Thought | undefined {
+  const fresh = bubbles.filter((t) => !avoid.includes(t.id) && !talkedAbout.includes(t.id));
+  const fine = bubbles.filter((t) => !avoid.includes(t.id));
+  const pool = fresh.length ? fresh : fine.length ? fine : bubbles;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
 
 export async function POST(req: Request): Promise<Response> {
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return fail("The bird didn't understand that.");
+  const request = parsed.data;
 
   const db = getDb();
-  const focus = parsed.data.mode === "new" ? getThought(db, parsed.data.id) : undefined;
-  if (focus === null || focus?.source === "bird") return fail("That bubble is gone.", 404);
+  const born = request.mode === "new" ? getThought(db, request.id) : undefined;
+  if (born === null || born?.source === "bird") return fail("That bubble is gone.", 404);
   if (personThoughts(listThoughts(db)).length === 0) return fail("There are no bubbles yet.", 404);
 
   try {
     return await oneAtATime(async () => {
       const bubbles = personThoughts(listThoughts(db)).slice(-MAX_BUBBLES);
-      const result = await ponder({
-        mode: parsed.data.mode,
-        focus,
-        bubbles,
-        avoid: parsed.data.mode === "wander" ? parsed.data.avoid : [],
-        notes: recentNotes(db, "note", NOTEBOOK_PAGES),
-        said: recentNotes(db, "said", SAID_LINES),
-      });
+      const said = recentNotes(db, "said", SAID_LINES);
+      const lately = said.slice(-RECENTLY).map((n) => n.thoughtId);
+      const focus = born ?? pickBubble(bubbles, request.mode === "wander" ? request.avoid : [], lately);
+      if (!focus) return fail("There are no bubbles yet.", 404);
+      const result = await ponder({ mode: request.mode, focus, bubbles, cards: getCards(db), knowledge: knowledgeText(db), said });
       addNote(db, "said", result.line, result.id);
-      if (result.note) addNote(db, "note", result.note, result.id);
       return ok({ id: result.id, line: result.line, links: result.links });
     });
   } catch (error) {

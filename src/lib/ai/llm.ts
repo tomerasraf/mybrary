@@ -12,6 +12,10 @@ export interface JsonRequest {
   maxTokens?: number;
   /** How adventurous the local model is (default 0.8). */
   temperature?: number;
+  /** Think before answering (local thinking models only). Slow: for work nobody is waiting on. */
+  think?: boolean;
+  /** How long the local model may take (default 90s). */
+  timeoutMs?: number;
 }
 
 export interface BrainConfig {
@@ -24,6 +28,8 @@ export interface BrainConfig {
 
 const OLLAMA_TIMEOUT_MS = 90_000;
 const KEEP_ALIVE = "30m";
+/** Room for a thinking model to think in, on top of its answer. */
+const THINK_TOKENS = 2200;
 
 export function brainConfig(env: Partial<Record<string, string | undefined>> = process.env): BrainConfig {
   return {
@@ -84,7 +90,7 @@ async function ollamaChat(config: BrainConfig, req: JsonRequest, think: boolean 
   return fetch(`${config.ollamaUrl}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
+    signal: AbortSignal.timeout(req.timeoutMs ?? OLLAMA_TIMEOUT_MS),
     body: JSON.stringify({
       model: config.ollamaModel,
       stream: false,
@@ -92,7 +98,7 @@ async function ollamaChat(config: BrainConfig, req: JsonRequest, think: boolean 
       ...(think === undefined ? {} : { think }),
       format: req.schema,
       keep_alive: KEEP_ALIVE,
-      options: { temperature: req.temperature ?? 0.8, num_predict: think ? 2500 : (req.maxTokens ?? 400), num_ctx: 8192 },
+      options: { temperature: req.temperature ?? 0.8, num_predict: think ? THINK_TOKENS + (req.maxTokens ?? 400) : (req.maxTokens ?? 400), num_ctx: 8192 },
       messages: [
         { role: "system", content: req.system },
         { role: "user", content: req.user },
@@ -104,7 +110,7 @@ async function ollamaChat(config: BrainConfig, req: JsonRequest, think: boolean 
 async function ollamaJson(config: BrainConfig, req: JsonRequest): Promise<string> {
   let res: Response;
   try {
-    res = await ollamaChat(config, req, config.ollamaThink);
+    res = await ollamaChat(config, req, req.think ?? config.ollamaThink);
     // Models without a thinking mode reject the flag: ask again without it.
     if (res.status === 400 && /think/i.test(await res.clone().text())) res = await ollamaChat(config, req, undefined);
   } catch (error) {

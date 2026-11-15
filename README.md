@@ -28,6 +28,7 @@
 ## The bird's library
 
 The bubbles are all the bird knows, and it wants them tidy.
+It reads every bubble to the end, remembers the names in it, and only says what you actually wrote.
 
 <table>
   <tr>
@@ -36,7 +37,7 @@ The bubbles are all the bird knows, and it wants them tidy.
   </tr>
   <tr>
     <td align="center"><img src="docs/media/shelves-drag.gif" alt="Dragging a bubble from one shelf into another"><br><b>✋ You rearrange</b><br><sub>drag bubbles, rename and recolour shelves</sub></td>
-    <td align="center"><img src="docs/media/library.jpg" alt="Shelves, links, and the bird's summary"><br><b>🐦 It thinks</b><br><sub>and writes its own thoughts on a shelf of its own</sub></td>
+    <td align="center"><img src="docs/media/library.jpg" alt="Shelves, links, and the bird's summary"><br><b>🐦 It thinks</b><br><sub>writes its own thoughts, and leaves you small steps to tick off</sub></td>
   </tr>
 </table>
 

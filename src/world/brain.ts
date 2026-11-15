@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import type { TidyResult } from "@/lib/library";
+import type { Step } from "@/lib/steps";
 import type { Thought } from "@/lib/thoughts";
-import { BORED, IDLE, INSPECT, JOY, LISTENING, SORTING, WRITING, pick } from "@/lib/bird/lines";
+import { BORED, IDLE, INSPECT, JOY, LISTENING, PLANNING, SORTING, WRITING, pick } from "@/lib/bird/lines";
 import { Animator, Cancelled, ease } from "./anim";
 import type { Bird } from "./bird";
 import type { Desk } from "./desk";
@@ -29,6 +30,8 @@ export interface BrainHooks {
   tidy: () => Promise<TidyResult | null>;
   /** Ask the brain for one of the bird's own thoughts (saved in its nook). */
   muse: () => Promise<Thought | null>;
+  /** Ask the brain for one small thing to do about a shelf. Null when it has nothing. */
+  suggest: () => Promise<Step | null>;
   /** Re-read the saved library and bring the world in line with it. */
   resync: () => void;
 }
@@ -50,6 +53,10 @@ const MUSE_FIRST_MS = 90_000;
 /** Without new bubbles, the bird still has a new thought this often. */
 const MUSE_STALE_MS = 20 * 60_000;
 const MUSE_MIN_BUBBLES = 3;
+const STEP_FIRST_MS = 150_000;
+const STEP_COOLDOWN_MS = 8 * 60_000;
+/** When the bird had nothing to suggest (still reading, say), it tries again sooner. */
+const STEP_RETRY_MS = 2 * 60_000;
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
 /** Decides what the bird is doing, one behaviour at a time. */
@@ -65,6 +72,7 @@ export class Brain {
   private tidyIdleAt: { count: number; at: number } | null = null;
   private lastMuse = Date.now() - MUSE_COOLDOWN_MS + MUSE_FIRST_MS;
   private museSeen = -1;
+  private lastStep = Date.now() - STEP_COOLDOWN_MS + STEP_FIRST_MS;
   private motor: Motor;
   private librarian: Librarian;
 
@@ -149,6 +157,7 @@ export class Brain {
         else if (this.composing) await this.atDesk(signal);
         else if (this.lib.personCount === 0) await this.bored(signal);
         else if (this.wantsToTidy()) await this.tidyUp(signal);
+        else if (this.wantsToSuggest()) await this.suggestStep(signal);
         else if (this.wantsToMuse()) await this.writeSomething(signal);
         else await this.roam(signal);
       } catch (error) {
@@ -173,10 +182,11 @@ export class Brain {
 
   private wantsToTidy(): boolean {
     const loose = this.lib.sortableCount();
-    const work = loose >= 2 || (loose === 1 && this.lib.shelfCount() > 0);
+    const review = this.lib.reviewCount;
+    const work = loose >= 2 || (loose === 1 && this.lib.shelfCount() > 0) || review > 0;
     if (!work || Date.now() - this.lastTidy < TIDY_COOLDOWN_MS) return false;
     const idle = this.tidyIdleAt;
-    return !idle || idle.count !== loose || Date.now() - idle.at > TIDY_NOTHING_MS;
+    return !idle || idle.count !== loose + review || Date.now() - idle.at > TIDY_NOTHING_MS;
   }
 
   private wantsToMuse(): boolean {
@@ -187,14 +197,15 @@ export class Brain {
 
   private async tidyUp(signal: AbortSignal): Promise<void> {
     this.lastTidy = Date.now();
-    const loose = this.lib.sortableCount();
+    const loose = this.lib.sortableCount() + this.lib.reviewCount;
     this.say(pick(SORTING), 2.5);
     const result = await this.whileThinking(this.hooks.tidy(), signal, WORK_PATIENCE_S, (late) =>
       this.librarian.snapAll(late.steps),
     );
     if (!result || result.steps.length === 0) {
-      this.tidyIdleAt = { count: loose, at: Date.now() };
-      if (!result) this.hooks.resync();
+      // Still reading some bubbles: it comes back to sort them soon. Otherwise it waits for something new.
+      this.tidyIdleAt = result?.reading ? null : { count: loose, at: Date.now() };
+      this.hooks.resync();
       return;
     }
     this.tidyIdleAt = null;
@@ -211,6 +222,34 @@ export class Brain {
       await this.motor.hop(2, 0.12);
     }
     await this.animator.wait(2, signal);
+  }
+
+  private wantsToSuggest(): boolean {
+    return this.lib.shelfCount() > 0 && Date.now() - this.lastStep > STEP_COOLDOWN_MS;
+  }
+
+  /** Finds one small thing you could do about a shelf, flies over to it and says it. */
+  private async suggestStep(signal: AbortSignal): Promise<void> {
+    this.lastStep = Date.now();
+    this.say(pick(PLANNING), 2.5);
+    const step = await this.whileThinking(this.hooks.suggest(), signal, WORK_PATIENCE_S);
+    if (!step) {
+      this.lastStep = Date.now() - STEP_COOLDOWN_MS + STEP_RETRY_MS;
+      return;
+    }
+    const shelf = step.clusterId !== null ? this.lib.clusters.get(step.clusterId) : undefined;
+    if (shelf) {
+      const spot = clampToRing({ x: shelf.pos.x * 0.82, z: shelf.pos.z * 0.82 }, 1.4, 7);
+      await this.motor.walkTo(new THREE.Vector3(spot.x, 0, spot.z), signal, 0.9);
+      await this.motor.faceToward(shelf.pos, signal);
+      this.bird.lookUp = 1;
+      this.lib.clusters.jiggle(shelf.id, 1.3);
+    }
+    sound.chirp(true);
+    this.say(`a small step: ${step.body}`, 9);
+    await this.motor.hop(2, 0.12);
+    await this.animator.wait(6, signal);
+    this.bird.lookUp = 0;
   }
 
   private async writeSomething(signal: AbortSignal): Promise<void> {
