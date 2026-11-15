@@ -74,4 +74,8 @@ export const FILED = ["in you go", "there.", "that's where you live now", "*squi
 
 export const WRITING = ["let me write something down…", "i'm having a thought…", "hold on, an idea…"] as const;
 
+export const PLANNING = ["what could you do about these…", "let me find a small step…", "*taps beak, thinking*"] as const;
+
+export const STEP_DONE = ["you did it! how did it go?", "done! what happened?", "one less bubble to carry. how was it?"] as const;
+
 export const WROTE = ["wrote something for you. it's on my shelf", "a thought of my own! come read it", "i put a thought on my shelf"] as const;

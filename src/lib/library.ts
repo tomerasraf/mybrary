@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { SHELF_COLOR_KEYS, colorForIndex, type ShelfColor } from "./colors";
 import type { DB } from "./db";
+import { toReview } from "./cards";
+import { openSteps, type Step } from "./steps";
 import { listThoughts, toThought, type PlacedBy, type Thought, type ThoughtRow } from "./thoughts";
 
 // The bird's library: shelves (big bubbles) that hold your bubbles, links between bubbles,
@@ -29,18 +31,25 @@ export interface Library {
   thoughts: Thought[];
   clusters: Cluster[];
   links: Link[];
+  /** How many bubbles the bird filed before reading them properly, and wants to look at again. */
+  review: number;
+  /** Small steps the bird suggested that are still waiting for you. */
+  steps: Step[];
 }
 
 /** One thing the bird did while tidying, in the order it acts them out. */
 export type TidyStep =
   | { kind: "shelf"; cluster: Cluster }
-  | { kind: "file"; thoughtId: number; clusterId: number }
+  /** `from` is where the bubble was (null: loose). `clusterId` null means the bird takes it off its shelf. */
+  | { kind: "file"; thoughtId: number; clusterId: number | null; from: number | null }
   | { kind: "link"; link: Link };
 
 export interface TidyResult {
   steps: TidyStep[];
   /** What the bird says when it's done, if anything. */
   line: string | null;
+  /** The bird is still reading some bubbles, and will have more to sort soon. */
+  reading?: boolean;
 }
 
 export const SHELF_NAME_MAX = 28;
@@ -112,7 +121,7 @@ export function listLinks(db: DB): Link[] {
 }
 
 export function getLibrary(db: DB): Library {
-  return { thoughts: listThoughts(db), clusters: listClusters(db), links: listLinks(db) };
+  return { thoughts: listThoughts(db), clusters: listClusters(db), links: listLinks(db), review: toReview(db), steps: openSteps(db) };
 }
 
 /** Your bubbles, without the bird's own thoughts. */
@@ -193,6 +202,10 @@ export function removeThought(db: DB, id: number): boolean {
     const gone = db.prepare("DELETE FROM thoughts WHERE id = ?").run(id).changes > 0;
     if (gone) {
       db.prepare("DELETE FROM links WHERE a = ? OR b = ?").run(id, id);
+      // What the bird took from it goes too: its card, the facts and rules it taught, steps it led to.
+      db.prepare("DELETE FROM cards WHERE thought_id = ?").run(id);
+      db.prepare("DELETE FROM facts WHERE thought_id = ?").run(id);
+      db.prepare("DELETE FROM steps WHERE thought_id = ? AND status = 'open'").run(id);
       pruneEmptyShelves(db);
     }
     return gone;

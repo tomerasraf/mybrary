@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiResult } from "@/lib/api";
-import { POP, daysSince, greeting, pick } from "@/lib/bird/lines";
+import { POP, STEP_DONE, daysSince, greeting, pick } from "@/lib/bird/lines";
 import type { ShelfColor } from "@/lib/colors";
 import type { Cluster, Library, Link, TidyResult } from "@/lib/library";
+import type { Step } from "@/lib/steps";
 import type { PlacedBy, Thought, ThoughtSource } from "@/lib/thoughts";
 import type { Ponder, ThinkRequest } from "@/world/brain";
 import { loadMuted, setMuted, unlockAudio } from "@/world/sound";
@@ -12,6 +13,7 @@ import { BirdSpeech, type Line } from "./BirdSpeech";
 import { Composer } from "./Composer";
 import { Reader } from "./Reader";
 import { LinkCard, ShelfCard } from "./ShelfCard";
+import { StepsNote } from "./StepsNote";
 import { useWorld } from "./useWorld";
 
 // A local model can take a while, especially the first time it loads.
@@ -47,6 +49,7 @@ export function Mind({ initial }: { initial: Library }) {
   const [thoughts, setThoughts] = useState(initial.thoughts);
   const [clusters, setClusters] = useState(initial.clusters);
   const [links, setLinks] = useState(initial.links);
+  const [steps, setSteps] = useState(initial.steps);
   const [openId, setOpenId] = useState<number | null>(null);
   const [openShelf, setOpenShelf] = useState<number | null>(null);
   const [openLink, setOpenLink] = useState<number | null>(null);
@@ -120,7 +123,9 @@ export function Mind({ initial }: { initial: Library }) {
     // Never over a bubble you placed yourself meanwhile.
     setThoughts((list) =>
       list.map((t) =>
-        filed.has(t.id) && t.placedBy !== "you" ? { ...t, clusterId: filed.get(t.id) ?? null, placedBy: "bird" as PlacedBy } : t,
+        filed.has(t.id) && t.placedBy !== "you"
+          ? { ...t, clusterId: filed.get(t.id) ?? null, placedBy: filed.get(t.id) == null ? null : ("bird" as PlacedBy) }
+          : t,
       ),
     );
     setLinks((list) => [...list, ...linked.filter((l) => !list.some((x) => x.id === l.id))]);
@@ -136,6 +141,32 @@ export function Mind({ initial }: { initial: Library }) {
     setThoughts((list) => [...list, res.data]);
     return res.data;
   }, [resyncLater]);
+
+  const suggest = useCallback(async (): Promise<Step | null> => {
+    const res = await api<Step | null>("/api/bird/step", { method: "POST" }, WORK_TIMEOUT_MS);
+    if (!res.success) {
+      resyncLater();
+      return null;
+    }
+    const step = res.data;
+    if (step) setSteps((list) => (list.some((s) => s.id === step.id) ? list : [...list, step]));
+    return step;
+  }, [resyncLater]);
+
+  const closeStep = useCallback(
+    async (id: number, status: "done" | "dismissed") => {
+      setSteps((list) => list.filter((s) => s.id !== id));
+      const res = await api<Step>(`/api/steps/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+      if (!res.success) {
+        flash(res.error);
+        resync();
+        return;
+      }
+      // The bird wants to hear about it: its question can be answered into a new bubble.
+      if (status === "done") say(pick(STEP_DONE), 8);
+    },
+    [flash, resync, say],
+  );
 
   // ---------- you, rearranging ----------
 
@@ -164,6 +195,7 @@ export function Mind({ initial }: { initial: Library }) {
     think,
     tidy,
     muse,
+    suggest,
     resync,
     onOpen,
     onOpenCluster,
@@ -177,6 +209,7 @@ export function Mind({ initial }: { initial: Library }) {
       setThoughts(res.data.thoughts);
       setClusters(res.data.clusters);
       setLinks(res.data.links);
+      setSteps(res.data.steps);
       world.current?.sync(res.data);
     });
   };
@@ -265,6 +298,10 @@ export function Mind({ initial }: { initial: Library }) {
   const shelf = openShelf === null ? null : (clusters.find((c) => c.id === openShelf) ?? null);
   const link: Link | null = openLink === null ? null : (links.find((l) => l.id === openLink) ?? null);
   const mine = thoughts.filter((t) => t.source !== "bird").length;
+  const shelfOf = useMemo(() => {
+    const names = new Map(clusters.filter((c) => c.kind === "shelf").map((c) => [c.id, c.name]));
+    return new Map(thoughts.flatMap((t) => (t.clusterId !== null && names.has(t.clusterId) ? [[t.id, names.get(t.clusterId) as string]] : [])));
+  }, [clusters, thoughts]);
 
   const anchor = useCallback(() => world.current?.birdAnchor() ?? null, [world]);
 
@@ -285,6 +322,13 @@ export function Mind({ initial }: { initial: Library }) {
         <SpeakerIcon muted={muted} />
       </button>
       {mine > 0 && <p className="count">{mine === 1 ? "1 bubble" : `${mine} bubbles`}</p>}
+      <StepsNote
+        steps={steps}
+        shelfOf={shelfOf}
+        onDone={(id) => void closeStep(id, "done")}
+        onDismiss={(id) => void closeStep(id, "dismissed")}
+        onSource={(id) => thoughts.some((t) => t.id === id) && setOpenId(id)}
+      />
 
       {failed && <p className="fallback">{failed}</p>}
       {toast && (
@@ -316,6 +360,7 @@ export function Mind({ initial }: { initial: Library }) {
           count={thoughts.filter((t) => t.clusterId === shelf.id).length}
           onClose={() => setOpenShelf(null)}
           onChange={changeShelf}
+          onForgot={resync}
         />
       )}
       {link && <LinkCard word={link.word} onClose={() => setOpenLink(null)} onPop={() => void popLink(link.id)} />}

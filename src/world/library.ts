@@ -46,10 +46,14 @@ export class LibraryScene {
     for (const c of lib.clusters) this.addClusterView(c, 1);
     this.bubbles.setAll(lib.thoughts);
     for (const l of lib.links) this.links.add(l);
+    this.reviewCount = lib.review;
     this.relayout(true);
   }
 
   // ---------- reading ----------
+
+  /** Bubbles the bird filed before reading them properly, and wants to look at again. */
+  reviewCount = 0;
 
   /** Your bubbles (not the bird's own thoughts). */
   get personCount(): number {
@@ -163,6 +167,7 @@ export class LibraryScene {
    * (a slow or interrupted tidy, a failed save). Bubbles being carried right now are left alone.
    */
   sync(lib: Library): void {
+    this.reviewCount = lib.review;
     // Shelves: new ones appear, gone ones pop, names and colours follow.
     const shelves = new Map(lib.clusters.map((c) => [c.id, c]));
     for (const c of lib.clusters) {

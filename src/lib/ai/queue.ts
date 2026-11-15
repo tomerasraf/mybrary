@@ -3,7 +3,8 @@
 
 let queue: Promise<unknown> = Promise.resolve();
 let waiting = 0;
-const MAX_WAITING = 2;
+// One running, the background reader, and one more.
+const MAX_WAITING = 3;
 
 export class BusyError extends Error {
   constructor() {

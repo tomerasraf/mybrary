@@ -116,10 +116,11 @@ export class Librarian {
   private async file(step: Extract<TidyStep, { kind: "file" }>, signal: AbortSignal): Promise<void> {
     const { thoughtId: id, clusterId } = step;
     // You may have moved it yourself meanwhile: then it stays where you put it.
-    if (!this.lib.bubbles.isFloating(id) || this.lib.placedBy(id) === "you" || this.lib.clusterOf(id) !== null) return;
+    if (!this.lib.bubbles.isFloating(id) || this.lib.placedBy(id) === "you" || this.lib.clusterOf(id) !== step.from) return;
     const at = this.lib.bubbles.position(id);
-    const shelf = this.lib.clusters.get(clusterId);
-    if (!at || !shelf) return;
+    // No shelf: the bird takes the bubble down, and it floats free again.
+    const shelf = clusterId === null ? null : this.lib.clusters.get(clusterId);
+    if (!at || shelf === undefined) return;
 
     // Fly up under the bubble and scoop it onto its head.
     const size = this.lib.bubbles.sizeOf(id);
@@ -138,18 +139,20 @@ export class Librarian {
     try {
       await this.animator.tween(SCOOP_S, (x) => (k = x), undefined, signal);
 
-      // Carry it to the shelf's wall, on the side facing the bird.
-      const wall = this.beside(shelf.pos, shelf.radius + size + 0.15, -(size + UNDER));
-      await this.motor.flyTo(wall, signal, 1.5);
-      await this.motor.faceToward(shelf.pos, signal);
-      this.bird.lean = 1;
+      if (shelf) {
+        // Carry it to the shelf's wall, on the side facing the bird.
+        const wall = this.beside(shelf.pos, shelf.radius + size + 0.15, -(size + UNDER));
+        await this.motor.flyTo(wall, signal, 1.5);
+        await this.motor.faceToward(shelf.pos, signal);
+        this.bird.lean = 1;
+      }
       await this.animator.wait(0.25, signal);
     } finally {
       // Let go: it squishes through the wall and settles in its place.
       this.bird.lean = 0;
       this.bird.lookUp = 0;
       this.lib.bubbles.release(id);
-      if (this.lib.placedBy(id) !== "you") this.lib.move(id, clusterId, "bird");
+      if (this.lib.placedBy(id) !== "you") this.lib.move(id, clusterId, clusterId === null ? null : "bird");
     }
     sound.squish(size);
     if (Math.random() < 0.35) this.say(pick(FILED), 2);
@@ -189,8 +192,8 @@ export class Librarian {
     } else if (step.kind === "file") {
       if (this.lib.draggingId === step.thoughtId) return;
       this.lib.bubbles.release(step.thoughtId);
-      if (this.lib.placedBy(step.thoughtId) !== "you" && this.lib.clusterOf(step.thoughtId) === null) {
-        this.lib.move(step.thoughtId, step.clusterId, "bird");
+      if (this.lib.placedBy(step.thoughtId) !== "you" && this.lib.clusterOf(step.thoughtId) === step.from) {
+        this.lib.move(step.thoughtId, step.clusterId, step.clusterId === null ? null : "bird");
       }
     } else if (!this.lib.links.has(step.link.id)) {
       this.lib.addLink(step.link, true);
