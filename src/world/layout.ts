@@ -82,3 +82,137 @@ export function clampToRing(p: Vec2, min: number, max: number): Vec2 {
   const k = Math.min(max, Math.max(min, r)) / r;
   return { x: p.x * k, z: p.z * k };
 }
+
+// ---------- shelves (big bubbles that hold small ones) ----------
+
+/** Bubbles shrink a little when they settle inside a shelf. */
+export const INNER_SCALE = 0.78;
+const MIN_SHELF_RADIUS = 0.95;
+
+/** How big a shelf must be to hold bubbles of these radii, with room to drift. */
+export function clusterRadius(memberRadii: readonly number[]): number {
+  const volume = memberRadii.reduce((sum, r) => sum + (r * INNER_SCALE) ** 3, 0);
+  return Math.max(MIN_SHELF_RADIUS, 1.6 * Math.cbrt(volume) + 0.22);
+}
+
+/**
+ * Places bubbles of these radii inside a shelf of radius `shelfR` so they overlap as little as
+ * possible: start on a Fibonacci sphere, then push overlapping pairs apart and keep everyone inside.
+ * Deterministic, so the same shelf always looks the same.
+ */
+export function packMembers(memberRadii: readonly number[], shelfR: number): Vec3[] {
+  const n = memberRadii.length;
+  const r = memberRadii.map((x) => x * INNER_SCALE);
+  const pts = memberRadii.map((m, i) => memberOffset(i, n, shelfR, m));
+  const keepInside = (i: number) => {
+    const room = Math.max(0, shelfR - r[i] - 0.06);
+    const d = Math.hypot(pts[i].x, pts[i].y, pts[i].z);
+    if (d > room && d > 0) {
+      const k = room / d;
+      pts[i] = { x: pts[i].x * k, y: pts[i].y * k, z: pts[i].z * k };
+    }
+  };
+  for (let iter = 0; iter < 80; iter++) {
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const dx = pts[j].x - pts[i].x;
+        const dy = pts[j].y - pts[i].y;
+        const dz = pts[j].z - pts[i].z;
+        const d = Math.hypot(dx, dy, dz) || 1e-4;
+        const overlap = r[i] + r[j] + 0.04 - d;
+        if (overlap <= 0) continue;
+        const k = (overlap / d) * 0.5;
+        pts[i] = { x: pts[i].x - dx * k, y: pts[i].y - dy * k, z: pts[i].z - dz * k };
+        pts[j] = { x: pts[j].x + dx * k, y: pts[j].y + dy * k, z: pts[j].z + dz * k };
+      }
+    }
+    for (let i = 0; i < n; i++) keepInside(i);
+  }
+  return pts;
+}
+
+/**
+ * Where member `index` of `count` sits inside a shelf of radius `shelfR`, relative to its centre.
+ * Spread through the volume on a Fibonacci sphere; always fully inside the shell.
+ */
+export function memberOffset(index: number, count: number, shelfR: number, memberR: number): Vec3 {
+  if (count <= 1) return { x: 0, y: 0, z: 0 };
+  const y = 1 - ((index + 0.5) / count) * 2;
+  const ring = Math.sqrt(Math.max(0, 1 - y * y));
+  const a = index * GOLDEN_ANGLE;
+  const room = Math.max(0, shelfR - memberR * INNER_SCALE - 0.08);
+  const d = room * Math.cbrt((index + 0.5) / count) * 0.92;
+  return { x: Math.cos(a) * ring * d, y: y * d, z: Math.sin(a) * ring * d };
+}
+
+export interface ShelfSpec {
+  id: number;
+  radius: number;
+}
+
+export interface Spot extends Vec3 {
+  r: number;
+}
+
+/** The bird's nook floats front-left of the tube, near where the bird likes to sit. */
+const NOOK_DIR = { x: -0.9, z: 0.44 };
+
+export function nookSpot(radius: number): Spot {
+  const len = Math.hypot(NOOK_DIR.x, NOOK_DIR.z);
+  const d = 4.4 + radius;
+  return { x: (NOOK_DIR.x / len) * d, y: Math.max(2.5, radius + 1), z: (NOOK_DIR.z / len) * d, r: radius };
+}
+
+/** How far out loose bubbles reach, with `count` of them on the golden spiral. */
+export function looseExtent(count: number): number {
+  return 2.7 + 1.05 * Math.sqrt(Math.max(0, count - 1)) + 0.6 + 1.05;
+}
+
+const SHELF_GAP = 0.6;
+const ANGLE_STEP = 0.06;
+
+/**
+ * Places shelves on rings outside the loose bubbles. The first one floats right behind the tube,
+ * the rest fan out to either side, skipping the nook.
+ */
+export function shelfSpots(shelves: readonly ShelfSpec[], looseCount: number, nook: Spot | null): Map<number, Spot> {
+  const placed: Spot[] = nook ? [nook] : [];
+  const out = new Map<number, Spot>();
+  let ring = Math.max(5.4, looseExtent(looseCount) + 0.6);
+  for (const s of shelves) {
+    let spot: Spot | null = null;
+    while (!spot) {
+      const dist = ring + s.radius;
+      for (let k = 0; !spot && k * ANGLE_STEP <= Math.PI; k++) {
+        for (const side of k === 0 ? [1] : [1, -1]) {
+          const a = -Math.PI / 2 + side * k * ANGLE_STEP;
+          const c = { x: Math.cos(a) * dist, y: Math.max(2.7, s.radius + 0.9), z: Math.sin(a) * dist, r: s.radius };
+          if (placed.every((p) => Math.hypot(p.x - c.x, p.z - c.z) >= p.r + c.r + SHELF_GAP)) {
+            spot = c;
+            break;
+          }
+        }
+      }
+      if (!spot) ring += 2 * s.radius + SHELF_GAP;
+    }
+    placed.push(spot);
+    out.set(s.id, spot);
+  }
+  return out;
+}
+
+/** Nudges a point (on the floor plane) out of any round area it sits in. */
+export function pushOut(p: Vec3, areas: readonly Spot[], margin = 1.1): Vec3 {
+  let { x, z } = p;
+  for (const a of areas) {
+    const dx = x - a.x;
+    const dz = z - a.z;
+    const d = Math.hypot(dx, dz);
+    const need = a.r + margin;
+    if (d >= need) continue;
+    const k = d < 1e-4 ? 1 : need / d;
+    x = a.x + (d < 1e-4 ? need : dx * k);
+    z = a.z + (d < 1e-4 ? 0 : dz * k);
+  }
+  return { x, y: p.y, z };
+}

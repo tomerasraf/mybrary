@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { fail, ok } from "@/lib/api";
 import { friendlyBrainError } from "@/lib/ai/llm";
-import { ponder } from "@/lib/ai/ponder";
+import { RepeatError, ponder } from "@/lib/ai/ponder";
+import { BusyError, oneAtATime } from "@/lib/ai/queue";
 import { getDb } from "@/lib/db";
+import { personThoughts } from "@/lib/library";
 import { addNote, recentNotes } from "@/lib/notebook";
 import { getThought, listThoughts } from "@/lib/thoughts";
 
@@ -16,31 +18,19 @@ const Body = z.discriminatedUnion("mode", [
 const MAX_BUBBLES = 50;
 const NOTEBOOK_PAGES = 25;
 const SAID_LINES = 12;
-// One thought at a time (the local model shares the GPU with the 3D world); later ones wait their turn.
-let queue: Promise<unknown> = Promise.resolve();
-let waiting = 0;
-const MAX_WAITING = 2;
-
-function oneAtATime<T>(job: () => Promise<T>): Promise<T> {
-  const run = queue.then(job, job);
-  queue = run.catch(() => undefined);
-  return run;
-}
 
 export async function POST(req: Request): Promise<Response> {
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return fail("The bird didn't understand that.");
-  if (waiting >= MAX_WAITING) return fail("The bird is already thinking.", 429);
 
   const db = getDb();
   const focus = parsed.data.mode === "new" ? getThought(db, parsed.data.id) : undefined;
-  if (focus === null) return fail("That bubble is gone.", 404);
-  if (listThoughts(db).length === 0) return fail("There are no bubbles yet.", 404);
+  if (focus === null || focus?.source === "bird") return fail("That bubble is gone.", 404);
+  if (personThoughts(listThoughts(db)).length === 0) return fail("There are no bubbles yet.", 404);
 
-  waiting += 1;
   try {
     return await oneAtATime(async () => {
-      const bubbles = listThoughts(db).slice(-MAX_BUBBLES);
+      const bubbles = personThoughts(listThoughts(db)).slice(-MAX_BUBBLES);
       const result = await ponder({
         mode: parsed.data.mode,
         focus,
@@ -54,9 +44,10 @@ export async function POST(req: Request): Promise<Response> {
       return ok({ id: result.id, line: result.line, links: result.links });
     });
   } catch (error) {
+    if (error instanceof BusyError) return fail(error.message, 429);
+    // Nothing new to say isn't a failure: the bird just looks quietly this time.
+    if (error instanceof RepeatError) return ok(null);
     console.error("[bird] ponder failed", error);
     return fail(friendlyBrainError(error), 502);
-  } finally {
-    waiting -= 1;
   }
 }

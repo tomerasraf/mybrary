@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import type { Thought } from "@/lib/thoughts";
+import type { Library } from "@/lib/library";
 import type { WorldHandle, WorldOptions } from "@/world/world";
 
 type Hooks = Omit<WorldOptions, "fontFamily">;
 
 /** Waits for the handwriting font so bubble labels draw with it, then builds the world once. */
-export function useWorld(canvas: RefObject<HTMLCanvasElement | null>, initial: Thought[], hooks: Hooks) {
+export function useWorld(canvas: RefObject<HTMLCanvasElement | null>, initial: Library, hooks: Hooks) {
   const world = useRef<WorldHandle | null>(null);
   const hooksRef = useRef(hooks);
   hooksRef.current = hooks;
@@ -30,9 +30,15 @@ export function useWorld(canvas: RefObject<HTMLCanvasElement | null>, initial: T
           greeting: hooksRef.current.greeting,
           say: (t, s) => hooksRef.current.say(t, s),
           think: (req) => hooksRef.current.think(req),
+          tidy: () => hooksRef.current.tidy(),
+          muse: () => hooksRef.current.muse(),
+          resync: () => hooksRef.current.resync(),
           onOpen: (id) => hooksRef.current.onOpen(id),
+          onOpenCluster: (id) => hooksRef.current.onOpenCluster(id),
+          onOpenLink: (id) => hooksRef.current.onOpenLink(id),
+          onMove: (id, clusterId, from) => hooksRef.current.onMove(id, clusterId, from),
         });
-        world.current.setThoughts(initial);
+        world.current.load(initial);
       } catch (error) {
         console.error("[world] failed to start", error);
         setFailed("This browser couldn't draw the 3D world (WebGL is off or unsupported).");

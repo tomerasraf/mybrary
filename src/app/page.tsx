@@ -1,9 +1,9 @@
 import { Mind } from "@/components/Mind";
 import { getDb } from "@/lib/db";
-import { listThoughts } from "@/lib/thoughts";
+import { getLibrary } from "@/lib/library";
 
 export const dynamic = "force-dynamic";
 
 export default function Home() {
-  return <Mind initialThoughts={listThoughts(getDb())} />;
+  return <Mind initial={getLibrary(getDb())} />;
 }

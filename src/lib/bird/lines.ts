@@ -57,3 +57,21 @@ export function greeting(count: number, days: number | null): string {
   if (days < 30) return "you're here!! i missed you. the bubbles missed you too";
   return "…is that you? it's been so long. i kept everything safe";
 }
+
+// ---------- the librarian ----------
+
+export const SORTING = [
+  "let's tidy up a bit",
+  "so many loose ones…",
+  "hmm, where does everything go…",
+  "*rolls up sleeves*",
+  "time to sort!",
+] as const;
+
+export const NEW_SHELF = ["a new shelf!", "these need a home", "*puff puff puff*", "ta-da. a shelf."] as const;
+
+export const FILED = ["in you go", "there.", "that's where you live now", "*squish*", "perfect fit"] as const;
+
+export const WRITING = ["let me write something down…", "i'm having a thought…", "hold on, an idea…"] as const;
+
+export const WROTE = ["wrote something for you. it's on my shelf", "a thought of my own! come read it", "i put a thought on my shelf"] as const;

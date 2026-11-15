@@ -71,7 +71,14 @@ export function languageOf(text: string): string | null {
   return null;
 }
 
-const words = (text: string) => new Set(text.toLowerCase().match(/\p{L}{3,}/gu) ?? []);
+/** Words that say nothing about what a line is about. */
+const FILLER = new Set(
+  "the and you your are but for not with this that like what when just more about from have was all its it's they them their than then".split(
+    " ",
+  ),
+);
+
+const words = (text: string) => new Set((text.toLowerCase().match(/[\p{L}']{3,}/gu) ?? []).filter((w) => !FILLER.has(w)));
 
 /** Whether two lines say mostly the same thing in the same words. */
 export function tooSimilar(a: string, b: string): boolean {
@@ -172,19 +179,33 @@ export function problemWith(result: PonderResult, input: PonderInput): string | 
   return null;
 }
 
+/** The bird had nothing new to say this time. Not a failure: it just looks quietly. */
+export class RepeatError extends Error {
+  constructor() {
+    super("the bird has nothing new to say right now");
+    this.name = "RepeatError";
+  }
+}
+
+/** A little more adventurous on the second try, so it doesn't land on the same idea again. */
+const RETRY_TEMPERATURE = 1.05;
+
 export async function ponder(input: PonderInput): Promise<PonderResult> {
   const user = buildUser(input);
-  const ask = async (extra: string) => {
-    const { value } = await askJson({ system: PERSONA, user: user + extra, schema: schemaFor(input.mode) });
+  const ask = async (extra: string, temperature?: number) => {
+    const { value } = await askJson({ system: PERSONA, user: user + extra, schema: schemaFor(input.mode), temperature });
     return parsePonder(value, input);
   };
   const first = await ask("");
   const problem = problemWith(first, input);
   if (!problem) return first;
 
-  // One more try, about the same bubble, with the problem spelled out.
-  const keep = input.mode === "wander" ? ` Keep visit = ${first.id}.` : "";
-  const second = await ask(`\n\nYour first try was: "${first.line}". Problem: ${problem}. Try again.${keep}`);
-  if (problemWith(second, input)?.startsWith("you already said")) throw new Error("the bird keeps repeating itself");
+  // One more try with the problem spelled out. When wandering, a repeat usually means that bubble is
+  // talked out, so the bird may pick a different one; a wrong language keeps the same bubble.
+  const repeat = problem.startsWith("you already said");
+  const steer =
+    input.mode !== "wander" ? "" : repeat ? ` Choose a different bubble than ${first.id}.` : ` Keep visit = ${first.id}.`;
+  const second = await ask(`\n\nYour first try was: "${first.line}". Problem: ${problem}. Try again.${steer}`, RETRY_TEMPERATURE);
+  if (problemWith(second, input)?.startsWith("you already said")) throw new RepeatError();
   return second;
 }

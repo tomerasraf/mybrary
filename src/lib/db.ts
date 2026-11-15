@@ -19,6 +19,23 @@ CREATE TABLE IF NOT EXISTS notes (
   thought_id INTEGER,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+-- Big bubbles that hold small ones. 'shelf': the bird sorts your bubbles into it. 'nook': the bird's own thoughts.
+CREATE TABLE IF NOT EXISTS clusters (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'shelf',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+-- Two bubbles the bird thinks belong together, and the word for why.
+CREATE TABLE IF NOT EXISTS links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  a INTEGER NOT NULL,
+  b INTEGER NOT NULL,
+  word TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE (a, b)
+);
 `;
 
 /** Columns added after the first release. */
@@ -26,6 +43,12 @@ function migrate(db: Database.Database): void {
   const cols = db.prepare("PRAGMA table_info(thoughts)").all() as { name: string }[];
   // The bird's question, when a thought was written as an answer to it.
   if (!cols.some((c) => c.name === "prompt")) db.exec("ALTER TABLE thoughts ADD COLUMN prompt TEXT");
+  // The shelf a bubble sits on, and who put it there ('bird' or 'you'). The bird never moves what you placed.
+  if (!cols.some((c) => c.name === "cluster_id")) db.exec("ALTER TABLE thoughts ADD COLUMN cluster_id INTEGER");
+  if (!cols.some((c) => c.name === "placed_by")) db.exec("ALTER TABLE thoughts ADD COLUMN placed_by TEXT");
+  // The bird's nook always exists.
+  const nook = db.prepare("SELECT id FROM clusters WHERE kind = 'nook'").get();
+  if (!nook) db.prepare("INSERT INTO clusters (name, color, kind) VALUES (?, 'butter', 'nook')").run("the bird's thoughts");
 }
 
 export function createDb(file: string): DB {

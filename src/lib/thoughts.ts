@@ -22,40 +22,51 @@ export const NewThought = z.object({
 });
 export type NewThought = z.input<typeof NewThought>;
 
+/** Who placed a bubble on its shelf. The bird never moves a bubble you placed. */
+export type PlacedBy = "bird" | "you";
+
 export interface Thought {
   id: number;
   body: string;
-  source: ThoughtSource;
+  /** 'bird': one of the bird's own thoughts, living in its nook. */
+  source: ThoughtSource | "bird";
   /** The bird's question this thought answers, or null. */
   prompt: string | null;
+  /** The shelf (or the bird's nook) this bubble sits in, or null when it floats loose. */
+  clusterId: number | null;
+  placedBy: PlacedBy | null;
   createdAt: string;
 }
 
-interface Row {
+export interface ThoughtRow {
   id: number;
   body: string;
   source: string;
   prompt: string | null;
+  cluster_id: number | null;
+  placed_by: string | null;
   created_at: string;
 }
 
-function toThought(row: Row): Thought {
+export function toThought(row: ThoughtRow): Thought {
   return {
     id: row.id,
     body: row.body,
-    source: row.source === "spoken" ? "spoken" : "written",
+    source: row.source === "spoken" || row.source === "bird" ? row.source : "written",
     prompt: row.prompt ?? null,
+    clusterId: row.cluster_id ?? null,
+    placedBy: row.placed_by === "bird" || row.placed_by === "you" ? row.placed_by : null,
     createdAt: row.created_at,
   };
 }
 
 export function listThoughts(db: DB): Thought[] {
-  const rows = db.prepare("SELECT * FROM thoughts ORDER BY id ASC").all() as Row[];
+  const rows = db.prepare("SELECT * FROM thoughts ORDER BY id ASC").all() as ThoughtRow[];
   return rows.map(toThought);
 }
 
 export function getThought(db: DB, id: number): Thought | null {
-  const row = db.prepare("SELECT * FROM thoughts WHERE id = ?").get(id) as Row | undefined;
+  const row = db.prepare("SELECT * FROM thoughts WHERE id = ?").get(id) as ThoughtRow | undefined;
   return row ? toThought(row) : null;
 }
 
@@ -63,7 +74,7 @@ export function createThought(db: DB, input: NewThought): Thought {
   const data = NewThought.parse(input);
   const row = db
     .prepare("INSERT INTO thoughts (body, source, prompt) VALUES (?, ?, ?) RETURNING *")
-    .get(data.body, data.source, data.prompt) as Row;
+    .get(data.body, data.source, data.prompt) as ThoughtRow;
   return toThought(row);
 }
 

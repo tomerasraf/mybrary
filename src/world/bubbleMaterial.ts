@@ -28,6 +28,8 @@ uniform float uTime;
 uniform float uSeed;
 uniform float uOpacity;
 uniform float uGlow;
+uniform vec3 uTint;
+uniform float uTintAmt;
 varying vec3 vNormalW;
 varying vec3 vViewW;
 
@@ -53,9 +55,11 @@ void main() {
   float edge = smoothstep(0.82, 1.0, f);
   vec3 col = mix(iri, iri * 0.62, edge * 0.6);
   col = mix(col, vec3(1.0), spec);
+  // A shelf's colour: the film takes it on, and the body holds a faint wash of it.
+  col = mix(col, uTint * 0.92, uTintAmt * (0.75 + 0.25 * f));
   col += uGlow * vec3(0.25, 0.22, 0.12);
 
-  float alpha = 0.035 + fres * 0.8 + spec * 0.85 + uGlow * 0.12;
+  float alpha = 0.035 + fres * 0.8 + spec * 0.85 + uGlow * 0.12 + uTintAmt * (0.1 + fres * 0.3);
   gl_FragColor = vec4(col, clamp(alpha, 0.0, 1.0) * uOpacity);
 }
 `;
@@ -70,6 +74,8 @@ export function createBubbleMaterial(seed: number): THREE.ShaderMaterial {
       uWobble: { value: 1 },
       uOpacity: { value: 1 },
       uGlow: { value: 0 },
+      uTint: { value: new THREE.Color(1, 1, 1) },
+      uTintAmt: { value: 0 },
     },
     transparent: true,
     depthWrite: false,
@@ -130,4 +136,35 @@ export function textTexture(text: string, fontFamily: string): THREE.CanvasTextu
   lines.forEach((l, i) => g.fillText(l, size / 2, top + i * lh));
   tex.needsUpdate = true;
   return tex;
+}
+
+/** A one-line handwritten label (a shelf's name, a link's word). `aspect` is width / height. */
+export function labelTexture(
+  text: string,
+  fontFamily: string,
+  color = "rgba(60, 66, 86, 0.9)",
+): { texture: THREE.CanvasTexture; aspect: number } {
+  const h = 128;
+  const probe = document.createElement("canvas").getContext("2d");
+  const font = `76px ${fontFamily}`;
+  let w = 256;
+  if (probe) {
+    probe.font = font;
+    w = Math.min(1536, Math.max(128, Math.ceil(probe.measureText(text).width + 48)));
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const g = canvas.getContext("2d");
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  if (g) {
+    g.font = font;
+    g.fillStyle = color;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText(text, w / 2, h / 2 + 4);
+    texture.needsUpdate = true;
+  }
+  return { texture, aspect: w / h };
 }
