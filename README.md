@@ -11,8 +11,6 @@
   <img src="docs/media/mybrary.gif" alt="Typing a thought, the bird carries it to the tube, and a bubble floats up" width="680">
 </p>
 
-<br>
-
 ## How it goes
 
 <table>
@@ -21,16 +19,26 @@
     <td align="center" width="33%"><img src="docs/media/step-2-bubble.jpg" alt="The thought becomes a bubble"><br><b>2 · Let it go</b><br><sub>it becomes a bubble</sub></td>
     <td align="center" width="33%"><img src="docs/media/step-3-bird.jpg" alt="The bird asks a question"><br><b>3 · The bird wonders</b><br><sub>tap its question to answer</sub></td>
   </tr>
-</table>
-
-<table>
   <tr>
-    <td align="center" valign="top"><img src="docs/media/read.gif" alt="Tapping a bubble opens the thought" width="520"><br><sub>Tap any bubble to read it again.</sub></td>
-    <td align="center" valign="top"><img src="docs/media/phone.jpg" alt="MyBrary on a phone" width="200"><br><sub>Works on your phone too.</sub></td>
+    <td align="center" colspan="2"><img src="docs/media/read.gif" alt="Tapping a bubble opens the thought"><br><sub>Tap any bubble to read it again</sub></td>
+    <td align="center"><img src="docs/media/phone.jpg" alt="MyBrary on a phone" width="170"><br><sub>Works on your phone too</sub></td>
   </tr>
 </table>
 
-<br>
+## The bird's library
+
+The bubbles are all the bird knows, and it wants them tidy.
+
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="docs/media/shelves-sort.gif" alt="The bird blows up a shelf and carries bubbles into it"><br><b>🫧 It sorts</b><br><sub>new shelves, bubbles carried in one by one</sub></td>
+    <td align="center" width="50%"><img src="docs/media/shelves-links.gif" alt="The bird draws a soap-film link between two bubbles"><br><b>🔗 It links</b><br><sub>one word for why two bubbles belong together</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/media/shelves-drag.gif" alt="Dragging a bubble from one shelf into another"><br><b>✋ You rearrange</b><br><sub>drag bubbles, rename and recolour shelves</sub></td>
+    <td align="center"><img src="docs/media/library.jpg" alt="Shelves, links, and the bird's summary"><br><b>🐦 It thinks</b><br><sub>and writes its own thoughts on a shelf of its own</sub></td>
+  </tr>
+</table>
 
 ## Get it running
 
@@ -47,7 +55,7 @@ npm run dev
 Open **http://localhost:3000** and write your first thought. 🫧
 
 <details>
-<summary><b>On your phone</b></summary>
+<summary><b>📱 On your phone</b></summary>
 <br>
 
 1. Copy `.env.example` to `.env.local` and set an `APP_PASSCODE`, so nobody else on your Wi-Fi can get in.
@@ -58,7 +66,7 @@ Voice works in Chrome, Edge and Safari.
 </details>
 
 <details>
-<summary><b>Settings</b></summary>
+<summary><b>⚙️ Settings</b></summary>
 <br>
 
 All optional. Put them in `.env.local`.
@@ -72,31 +80,28 @@ All optional. Put them in `.env.local`.
 | `MYBRARY_DB` | Where your bubbles are saved |
 </details>
 
-<br>
-
 ## Yours, and only yours
 
-🏠 &nbsp;Your bubbles are saved on your own computer, in `data/`.<br>
-🐦 &nbsp;The bird thinks on your computer too.<br>
-🔒 &nbsp;Nothing you write is ever uploaded to git. Your keys aren't either.
+- 🏠 Your bubbles are saved on your own computer, in `data/`.
+- 🐦 The bird thinks on your computer too.
+- 🔒 Nothing you write is ever uploaded to git. Your keys aren't either.
 
 <sub>If you add a Claude key and Ollama is off, the bird sends your bubbles to Claude to think. Chrome's voice typing uses Google's servers.</sub>
-
-<br>
 
 ## Make it your own
 
 Fork it, change it, give the bird a new hat. It's MIT licensed, so it's yours to play with.
 
 <details>
-<summary><b>Where things live</b></summary>
+<summary><b>🗺️ Where things live</b></summary>
 <br>
 
-| Folder | |
+| Folder | What's inside |
 | --- | --- |
-| `src/world/` | The 3D world: the tube, the desk, the bird, the bubbles, the sounds |
-| `src/components/` | The text box, voice input, the page you read |
-| `src/lib/` | Saving thoughts, the bird's notebook, its brain |
+| `src/world/` | The 3D world: the tube, the desk, the bird, bubbles, shelves, links, sounds |
+| `src/components/` | The text box, voice input, the pages and cards you open |
+| `src/lib/` | Saving thoughts, shelves and links, the bird's notebook |
+| `src/lib/ai/` | The bird's brain: wondering, sorting, writing |
 | `_archive/` | An older version, kept for ideas |
 
 ```bash
@@ -104,7 +109,5 @@ npm test
 npm run typecheck
 ```
 </details>
-
-<br>
 
 <p align="center"><sub>Made with care · <a href="LICENSE">MIT</a></sub></p>

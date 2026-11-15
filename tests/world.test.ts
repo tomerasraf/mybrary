@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { Animator, Cancelled, lerpAngle } from "@/world/anim";
-import { bubbleHome, bubblePreview, bubbleRadius, clampToRing, planPath } from "@/world/layout";
+import {
+  INNER_SCALE,
+  bubbleHome,
+  bubblePreview,
+  bubbleRadius,
+  clampToRing,
+  clusterRadius,
+  looseExtent,
+  memberOffset,
+  nookSpot,
+  packMembers,
+  planPath,
+  pushOut,
+  shelfSpots,
+} from "@/world/layout";
 
 describe("bubble layout", () => {
   it("places bubbles deterministically, above the tube and away from the centre", () => {
@@ -95,5 +109,71 @@ describe("animator", () => {
 
   it("turns the short way round", () => {
     expect(lerpAngle(3, -3, 1)).toBeCloseTo(3 + (Math.PI * 2 - 6));
+  });
+});
+
+describe("shelves", () => {
+  it("grow with what they hold", () => {
+    expect(clusterRadius([])).toBeCloseTo(0.95);
+    expect(clusterRadius([0.5, 0.5, 0.5, 0.5, 0.5, 0.5])).toBeGreaterThan(clusterRadius([0.5, 0.5]));
+  });
+
+  it("keep every member fully inside the shell", () => {
+    for (const n of [1, 2, 5, 12, 30]) {
+      const radii = Array.from({ length: n }, (_, i) => 0.42 + (i % 4) * 0.15);
+      const R = clusterRadius(radii);
+      radii.forEach((r, i) => {
+        const o = memberOffset(i, n, R, r);
+        expect(Math.hypot(o.x, o.y, o.z) + r * INNER_SCALE).toBeLessThanOrEqual(R);
+      });
+    }
+  });
+
+  it("pack their bubbles without much overlap, all inside", () => {
+    for (const n of [2, 3, 6, 12, 25]) {
+      const radii = Array.from({ length: n }, (_, i) => 0.42 + ((i * 7) % 5) * 0.12);
+      const R = clusterRadius(radii);
+      const pts = packMembers(radii, R);
+      expect(pts).toEqual(packMembers(radii, R));
+      pts.forEach((p, i) => expect(Math.hypot(p.x, p.y, p.z) + radii[i] * INNER_SCALE).toBeLessThanOrEqual(R + 1e-6));
+      let worst = 0;
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const d = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y, pts[i].z - pts[j].z);
+          worst = Math.max(worst, (radii[i] + radii[j]) * INNER_SCALE - d);
+        }
+      }
+      expect(worst).toBeLessThan(0.15);
+    }
+  });
+
+  it("never overlap each other, the nook, or the loose bubbles", () => {
+    const nook = nookSpot(1.4);
+    const shelves = Array.from({ length: 14 }, (_, i) => ({ id: i + 1, radius: 0.95 + (i % 3) * 0.7 }));
+    const spots = [...shelfSpots(shelves, 9, nook).values()];
+    expect(spots).toHaveLength(14);
+    const all = [nook, ...spots];
+    for (let i = 0; i < all.length; i++) {
+      for (let j = i + 1; j < all.length; j++) {
+        expect(Math.hypot(all[i].x - all[j].x, all[i].z - all[j].z)).toBeGreaterThanOrEqual(all[i].r + all[j].r);
+      }
+    }
+    for (const s of spots) {
+      expect(Math.hypot(s.x, s.z) - s.r).toBeGreaterThanOrEqual(looseExtent(9));
+      expect(s.y - s.r).toBeGreaterThan(0); // floats above the floor
+    }
+  });
+
+  it("puts the first shelf right behind the tube", () => {
+    const first = shelfSpots([{ id: 7, radius: 1 }], 0, null).get(7)!;
+    expect(first.x).toBeCloseTo(0);
+    expect(first.z).toBeLessThan(0);
+  });
+
+  it("pushes loose bubbles out of the nook", () => {
+    const nook = { x: 0, y: 3, z: 0, r: 1 };
+    const p = pushOut({ x: 0.5, y: 3, z: 0 }, [nook]);
+    expect(Math.hypot(p.x, p.z)).toBeCloseTo(2.1);
+    expect(pushOut({ x: 5, y: 3, z: 0 }, [nook])).toEqual({ x: 5, y: 3, z: 0 });
   });
 });

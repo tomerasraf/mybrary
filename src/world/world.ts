@@ -1,11 +1,12 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { Thought } from "@/lib/thoughts";
-import { Animator } from "./anim";
+import type { Cluster, Library } from "@/lib/library";
+import type { PlacedBy, Thought } from "@/lib/thoughts";
+import { Animator, damp } from "./anim";
 import { Bird } from "./bird";
 import { Brain, type BrainHooks } from "./brain";
-import { BubbleField } from "./bubbles";
 import { Desk } from "./desk";
+import { LibraryScene } from "./library";
 import * as sound from "./sound";
 import { ThoughtMachine, Tube } from "./tube";
 
@@ -13,21 +14,35 @@ export interface WorldOptions extends BrainHooks {
   fontFamily: string;
   greeting: string;
   onOpen: (id: number) => void;
+  /** You tapped a shelf (or the bird's nook). */
+  onOpenCluster: (id: number) => void;
+  /** You tapped the word on a link. */
+  onOpenLink: (id: number) => void;
+  /** You dropped a bubble onto a shelf, or out onto the floor (null). It has already moved in the world. */
+  onMove: (id: number, clusterId: number | null, from: { clusterId: number | null; placedBy: PlacedBy | null }) => void;
 }
 
 export interface WorldHandle {
-  setThoughts: (thoughts: Thought[]) => void;
+  load: (library: Library) => void;
   deliver: (thought: Thought) => void;
   pop: (id: number) => Promise<void>;
   setComposing: (value: boolean) => void;
   keystroke: (textLength: number) => void;
   focus: (id: number | null) => void;
+  updateCluster: (cluster: Cluster) => void;
+  moveBubble: (id: number, clusterId: number | null, by: PlacedBy | null) => void;
+  removeLink: (id: number) => void;
+  /** Bring the world in line with the library as saved. */
+  sync: (library: Library) => void;
   /** Screen position (CSS px) just above the bird's head. */
   birdAnchor: () => { x: number; y: number; visible: boolean };
   dispose: () => void;
 }
 
 const TAP_SLOP_PX = 8;
+/** The camera never starts closer than this, and eases out as the library grows. */
+const MIN_VIEW_DISTANCE = 7.2;
+const MAX_VIEW_DISTANCE = 28;
 const TAP_MS = 350;
 
 export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): WorldHandle {
@@ -78,9 +93,10 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   const machine = new ThoughtMachine(animator);
   const desk = new Desk();
   const bird = new Bird();
-  const bubbles = new BubbleField(scene, animator, opts.fontFamily);
+  const library = new LibraryScene(scene, animator, opts.fontFamily);
+  const bubbles = library.bubbles;
   scene.add(tube.group, machine.group, desk.group, bird.root);
-  const brain = new Brain(bird, desk, machine, tube, bubbles, animator, opts);
+  const brain = new Brain(bird, desk, machine, tube, library, animator, opts);
 
   // ---------- sizing ----------
   const resize = () => {
@@ -99,10 +115,14 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   ro.observe(canvas);
   resize();
 
-  // ---------- pointer: hover and tap ----------
+  // ---------- pointer: hover, tap and drag ----------
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
-  let down: { x: number; y: number; t: number } | null = null;
+  /** A press that may become a tap or, on a bubble, a drag. */
+  let down: { id: number; x: number; y: number; t: number; bubble: number | null; dragging: boolean } | null = null;
+  const dragPlane = new THREE.Plane();
+  const dragHit = new THREE.Vector3();
+  const camDir = new THREE.Vector3();
   let idleSince = performance.now();
 
   const toNdc = (e: PointerEvent) => {
@@ -110,28 +130,77 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     raycaster.setFromCamera(ndc, camera);
   };
+  const overBird = () => raycaster.intersectObject(bird.root, true).length > 0;
+
   const onMove = (e: PointerEvent) => {
-    if (e.pointerType !== "mouse") return;
+    if (down && e.pointerId !== down.id) return;
     toNdc(e);
+    if (down?.bubble != null) {
+      if (!down.dragging && Math.hypot(e.clientX - down.x, e.clientY - down.y) >= TAP_SLOP_PX) {
+        const at = bubbles.position(down.bubble);
+        if (!at) return;
+        // Drag on a plane facing the camera, through the bubble.
+        camera.getWorldDirection(camDir);
+        dragPlane.setFromNormalAndCoplanarPoint(camDir, at);
+        if (!library.startDrag(down.bubble, at)) {
+          // The bird has it right now; this press just turns into nothing.
+          down.bubble = null;
+          return;
+        }
+        down.dragging = true;
+        canvas.style.cursor = "grabbing";
+        sound.touch();
+      }
+      if (down.dragging && raycaster.ray.intersectPlane(dragPlane, dragHit)) {
+        dragHit.y = Math.max(0.5, dragHit.y);
+        library.dragTo(dragHit, raycaster.ray, raycaster);
+      }
+      return;
+    }
+    if (e.pointerType !== "mouse") return;
     const id = bubbles.pick(raycaster);
-    const overBird = raycaster.intersectObject(bird.root, true).length > 0;
+    const link = id === null ? library.links.pick(raycaster) : null;
+    const shelf = id === null && link === null ? library.clusters.pick(raycaster) : null;
     bubbles.setHover(id);
-    canvas.style.cursor = id !== null || overBird ? "pointer" : "grab";
+    library.links.setHover(link);
+    library.clusters.setHover(shelf?.id ?? null);
+    canvas.style.cursor = id !== null || link !== null || shelf !== null || overBird() ? "pointer" : "grab";
   };
+
+  // Capture phase, so a press on a bubble can stop the camera from turning before OrbitControls sees it.
   const onDown = (e: PointerEvent) => {
     sound.unlockAudio();
-    down = { x: e.clientX, y: e.clientY, t: performance.now() };
+    if (down) {
+      // A second finger: let go of any drag (the bubble goes back), and let the camera have the gesture.
+      cancelPress();
+      return;
+    }
+    toNdc(e);
+    const bubble = overBird() ? null : bubbles.pick(raycaster);
+    const mine = bubble !== null && library.clusterOf(bubble) !== library.nook;
+    down = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), bubble: mine ? bubble : null, dragging: false };
+    if (mine) {
+      controls.enabled = false;
+      canvas.setPointerCapture(e.pointerId);
+    }
     controls.autoRotate = false;
     idleSince = performance.now();
   };
+
   const onUp = (e: PointerEvent) => {
     idleSince = performance.now();
-    if (!down) return;
-    const tap = Math.hypot(e.clientX - down.x, e.clientY - down.y) < TAP_SLOP_PX && performance.now() - down.t < TAP_MS;
+    if (!down || e.pointerId !== down.id) return;
+    controls.enabled = true;
+    const press = down;
     down = null;
+    if (press.dragging) {
+      drop();
+      return;
+    }
+    const tap = Math.hypot(e.clientX - press.x, e.clientY - press.y) < TAP_SLOP_PX && performance.now() - press.t < TAP_MS * 2;
     if (!tap) return;
     toNdc(e);
-    if (raycaster.intersectObject(bird.root, true).length > 0) {
+    if (overBird()) {
       brain.poke();
       return;
     }
@@ -139,11 +208,58 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     if (id !== null) {
       sound.touch();
       opts.onOpen(id);
+      return;
+    }
+    const link = library.links.pick(raycaster);
+    if (link !== null) {
+      sound.touch();
+      opts.onOpenLink(link);
+      return;
+    }
+    const shelf = library.clusters.pick(raycaster);
+    if (shelf) {
+      sound.touch();
+      opts.onOpenCluster(shelf.id);
     }
   };
+
+  const drop = () => {
+    const dropped = library.endDrag();
+    canvas.style.cursor = "grab";
+    if (!dropped) return;
+    const from = { clusterId: library.clusterOf(dropped.id), placedBy: library.placedBy(dropped.id) };
+    if (dropped.shelf === from.clusterId) return; // back where it was
+    library.move(dropped.id, dropped.shelf, "you");
+    sound.pop(0.6);
+    opts.onMove(dropped.id, dropped.shelf, from);
+  };
+  /** Interrupted (a phone call, a second finger): the bubble goes back where it was. */
+  const cancelPress = () => {
+    controls.enabled = true;
+    if (down?.dragging) {
+      library.endDrag();
+      canvas.style.cursor = "grab";
+    }
+    down = null;
+  };
+  const onCancel = (e: PointerEvent) => {
+    if (down && e.pointerId === down.id) cancelPress();
+  };
   canvas.addEventListener("pointermove", onMove);
-  canvas.addEventListener("pointerdown", onDown);
+  canvas.addEventListener("pointerdown", onDown, { capture: true });
   canvas.addEventListener("pointerup", onUp);
+  canvas.addEventListener("pointercancel", onCancel);
+
+  // While you're not steering, the camera eases back far enough to see the whole library.
+  const fromTarget = new THREE.Vector3();
+  const frameLibrary = (dt: number) => {
+    const want = THREE.MathUtils.clamp(3 + library.extent() * 0.92, MIN_VIEW_DISTANCE, MAX_VIEW_DISTANCE);
+    fromTarget.subVectors(camera.position, controls.target);
+    const now = fromTarget.length();
+    if (Math.abs(now - want) < 0.01) return;
+    fromTarget.setLength(damp(now, want, 0.5, dt));
+    camera.position.copy(controls.target).add(fromTarget);
+  };
 
   // ---------- loop ----------
   let last = performance.now();
@@ -156,12 +272,13 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     last = now;
     time += dt;
     if (!controls.autoRotate && performance.now() - idleSince > 20_000) controls.autoRotate = true;
+    if (controls.autoRotate) frameLibrary(dt);
     animator.update(dt);
     tube.update(dt, time);
     machine.update(dt, time);
     desk.update(dt);
     bird.update(dt, time);
-    bubbles.update(dt, time);
+    library.update(dt, time);
     controls.update();
     renderer.render(scene, camera);
   };
@@ -170,12 +287,19 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
 
   const anchor = new THREE.Vector3();
   return {
-    setThoughts: (thoughts) => bubbles.setAll(thoughts),
+    load: (lib) => library.load(lib),
     deliver: (thought) => brain.deliver(thought),
-    pop: (id) => bubbles.pop(id),
+    pop: async (id) => {
+      await bubbles.pop(id);
+      library.removeThought(id);
+    },
     setComposing: (value) => brain.setComposing(value),
     keystroke: (len) => brain.keystroke(len),
     focus: (id) => bubbles.setFocus(id),
+    updateCluster: (c) => library.updateCluster(c),
+    moveBubble: (id, clusterId, by) => library.move(id, clusterId, by),
+    sync: (lib) => library.sync(lib),
+    removeLink: (id) => void library.links.remove(id),
     birdAnchor: () => {
       bird.headTop(anchor).project(camera);
       const visible = anchor.z < 1 && Math.abs(anchor.x) < 1.2 && Math.abs(anchor.y) < 1.2;
@@ -190,10 +314,11 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
       brain.dispose();
       ro.disconnect();
       canvas.removeEventListener("pointermove", onMove);
-      canvas.removeEventListener("pointerdown", onDown);
+      canvas.removeEventListener("pointerdown", onDown, { capture: true });
       canvas.removeEventListener("pointerup", onUp);
+      canvas.removeEventListener("pointercancel", onCancel);
       controls.dispose();
-      bubbles.disposeAll();
+      library.disposeAll();
       renderer.dispose();
     },
   };

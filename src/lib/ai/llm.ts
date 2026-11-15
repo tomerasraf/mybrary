@@ -10,6 +10,8 @@ export interface JsonRequest {
   /** JSON Schema the answer must follow. */
   schema: Record<string, unknown>;
   maxTokens?: number;
+  /** How adventurous the local model is (default 0.8). */
+  temperature?: number;
 }
 
 export interface BrainConfig {
@@ -90,7 +92,7 @@ async function ollamaChat(config: BrainConfig, req: JsonRequest, think: boolean 
       ...(think === undefined ? {} : { think }),
       format: req.schema,
       keep_alive: KEEP_ALIVE,
-      options: { temperature: 0.8, num_predict: think ? 2500 : (req.maxTokens ?? 400), num_ctx: 8192 },
+      options: { temperature: req.temperature ?? 0.8, num_predict: think ? 2500 : (req.maxTokens ?? 400), num_ctx: 8192 },
       messages: [
         { role: "system", content: req.system },
         { role: "user", content: req.user },

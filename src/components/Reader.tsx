@@ -5,6 +5,8 @@ import type { Thought } from "@/lib/thoughts";
 
 interface Props {
   thought: Thought;
+  /** The shelf it sits on, if any. */
+  shelf: string | null;
   onClose: () => void;
   onLetGo: (id: number) => void;
 }
@@ -16,7 +18,8 @@ function when(iso: string): string {
 }
 
 /** A bubble, opened: the page the bird typed. */
-export function Reader({ thought, onClose, onLetGo }: Props) {
+export function Reader({ thought, shelf, onClose, onLetGo }: Props) {
+  const bird = thought.source === "bird";
   const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
@@ -30,8 +33,9 @@ export function Reader({ thought, onClose, onLetGo }: Props) {
       <article className="page" role="dialog" aria-modal="true" aria-label="A thought" onClick={(e) => e.stopPropagation()}>
         <header className="page-head">
           <span>{when(thought.createdAt)}</span>
-          <span className="stamp">{thought.source === "spoken" ? "said out loud" : "written"}</span>
+          <span className="stamp">{bird ? "the bird wrote this" : thought.source === "spoken" ? "said out loud" : "written"}</span>
         </header>
+        {shelf && !bird && <p className="page-shelf">on the shelf: {shelf}</p>}
         {thought.prompt && (
           <p className="page-prompt" dir="auto">
             the bird asked: {thought.prompt}

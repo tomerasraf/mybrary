@@ -10,6 +10,8 @@ const t = (id: number, body: string, prompt: string | null = null): Thought => (
   body,
   source: "written",
   prompt,
+  clusterId: null,
+  placedBy: null,
   createdAt: "2026-11-14T10:00:00.000Z",
 });
 
@@ -84,6 +86,13 @@ describe("keeping the bird honest", () => {
   it("spots lines that repeat an earlier one", () => {
     expect(tooSimilar("you tie belonging to others' reactions", "you're still tying belonging to others' reactions")).toBe(true);
     expect(tooSimilar("you tie belonging to others' reactions", "what would you cook first?")).toBe(false);
+    // Two different thoughts that share only the little words.
+    expect(
+      tooSimilar(
+        "maybe the guitar course is like the sourdough starter, needs more time, not more starts.",
+        "maybe the budget is like the garden, you have to tend it, not just look at it.",
+      ),
+    ).toBe(false);
   });
 
   it("flags a line in the wrong language or one it already said", () => {

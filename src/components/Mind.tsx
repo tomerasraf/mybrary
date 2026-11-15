@@ -3,32 +3,53 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiResult } from "@/lib/api";
 import { POP, daysSince, greeting, pick } from "@/lib/bird/lines";
-import type { Thought, ThoughtSource } from "@/lib/thoughts";
+import type { ShelfColor } from "@/lib/colors";
+import type { Cluster, Library, Link, TidyResult } from "@/lib/library";
+import type { PlacedBy, Thought, ThoughtSource } from "@/lib/thoughts";
 import type { Ponder, ThinkRequest } from "@/world/brain";
 import { loadMuted, setMuted, unlockAudio } from "@/world/sound";
 import { BirdSpeech, type Line } from "./BirdSpeech";
 import { Composer } from "./Composer";
 import { Reader } from "./Reader";
+import { LinkCard, ShelfCard } from "./ShelfCard";
 import { useWorld } from "./useWorld";
 
 // A local model can take a while, especially the first time it loads.
 const THINK_TIMEOUT_MS = 45_000;
+/** Sorting and writing ask more of the brain. */
+const WORK_TIMEOUT_MS = 75_000;
+/** A slow brain request may still finish on the server after we stop waiting: look again after this. */
+const LATE_RESYNC_MS = 60_000;
 /** How long you can still answer the bird's question after it asks. */
 const QUESTION_OPEN_MS = 90_000;
 
-async function api<T>(url: string, init?: RequestInit): Promise<ApiResult<T>> {
+async function api<T>(url: string, init?: RequestInit, timeoutMs?: number): Promise<ApiResult<T>> {
+  const ctl = new AbortController();
+  const timer = timeoutMs ? setTimeout(() => ctl.abort(), timeoutMs) : null;
   try {
-    const res = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
+    const res = await fetch(url, { ...init, signal: ctl.signal, headers: { "Content-Type": "application/json", ...init?.headers } });
     return (await res.json()) as ApiResult<T>;
   } catch {
     return { success: false, data: null, error: "Couldn't reach the app. Is it still running?" };
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
-export function Mind({ initialThoughts }: { initialThoughts: Thought[] }) {
+/** Shelves with nobody on them are gone (the server removes them too). */
+function withoutEmptyShelves(clusters: Cluster[], thoughts: Thought[]): Cluster[] {
+  const used = new Set(thoughts.map((t) => t.clusterId));
+  return clusters.filter((c) => c.kind === "nook" || used.has(c.id));
+}
+
+export function Mind({ initial }: { initial: Library }) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const [thoughts, setThoughts] = useState(initialThoughts);
+  const [thoughts, setThoughts] = useState(initial.thoughts);
+  const [clusters, setClusters] = useState(initial.clusters);
+  const [links, setLinks] = useState(initial.links);
   const [openId, setOpenId] = useState<number | null>(null);
+  const [openShelf, setOpenShelf] = useState<number | null>(null);
+  const [openLink, setOpenLink] = useState<number | null>(null);
   const [line, setLine] = useState<Line | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -51,10 +72,18 @@ export function Mind({ initialThoughts }: { initialThoughts: Thought[] }) {
 
   useEffect(() => setMutedState(loadMuted()), []);
 
+  // Shelves nobody sits on any more are gone.
+  useEffect(() => setClusters((cs) => withoutEmptyShelves(cs, thoughts)), [thoughts]);
+
   const hello = useMemo(() => {
-    const last = initialThoughts.at(-1)?.createdAt ?? null;
-    return greeting(initialThoughts.length, daysSince(last));
-  }, [initialThoughts]);
+    const mine = initial.thoughts.filter((t) => t.source !== "bird");
+    return greeting(mine.length, daysSince(mine.at(-1)?.createdAt ?? null));
+  }, [initial]);
+
+  const flash = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast((t) => (t === msg ? null : t)), 5000);
+  }, []);
 
   const say = useCallback((text: string, seconds: number) => {
     lineKey.current += 1;
@@ -62,25 +91,124 @@ export function Mind({ initialThoughts }: { initialThoughts: Thought[] }) {
     if (text.trim().endsWith("?")) setQuestion(text.trim());
   }, []);
 
+  // ---------- staying in line with what's saved ----------
+
+  // Set once the world exists (below); a ref so the brain's hooks can call it at any time.
+  const resyncRef = useRef<() => void>(() => {});
+  const resync = useCallback(() => resyncRef.current(), []);
+  const resyncLater = useCallback(() => {
+    setTimeout(() => resyncRef.current(), LATE_RESYNC_MS);
+  }, []);
+
+  // ---------- the bird's brain ----------
+
   const think = useCallback(async (req: ThinkRequest): Promise<Ponder | null> => {
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), THINK_TIMEOUT_MS);
-    const res = await api<Ponder>("/api/bird/ponder", {
-      method: "POST",
-      body: JSON.stringify(req),
-      signal: ctl.signal,
-    });
-    clearTimeout(timer);
+    const res = await api<Ponder>("/api/bird/ponder", { method: "POST", body: JSON.stringify(req) }, THINK_TIMEOUT_MS);
     return res.success ? res.data : null;
   }, []);
 
-  const onOpen = useCallback((id: number) => setOpenId(id), []);
-  const { world, failed } = useWorld(canvas, initialThoughts, { greeting: hello, say, think, onOpen });
+  const tidy = useCallback(async (): Promise<TidyResult | null> => {
+    const res = await api<TidyResult>("/api/bird/tidy", { method: "POST" }, WORK_TIMEOUT_MS);
+    if (!res.success) {
+      resyncLater();
+      return null;
+    }
+    const shelves = res.data.steps.flatMap((s) => (s.kind === "shelf" ? [s.cluster] : []));
+    const filed = new Map(res.data.steps.flatMap((s) => (s.kind === "file" ? [[s.thoughtId, s.clusterId] as const] : [])));
+    const linked = res.data.steps.flatMap((s) => (s.kind === "link" ? [s.link] : []));
+    setClusters((list) => [...list, ...shelves.filter((s) => !list.some((c) => c.id === s.id))]);
+    // Never over a bubble you placed yourself meanwhile.
+    setThoughts((list) =>
+      list.map((t) =>
+        filed.has(t.id) && t.placedBy !== "you" ? { ...t, clusterId: filed.get(t.id) ?? null, placedBy: "bird" as PlacedBy } : t,
+      ),
+    );
+    setLinks((list) => [...list, ...linked.filter((l) => !list.some((x) => x.id === l.id))]);
+    return res.data;
+  }, [resyncLater]);
 
-  const flash = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast((t) => (t === msg ? null : t)), 5000);
-  }, []);
+  const muse = useCallback(async (): Promise<Thought | null> => {
+    const res = await api<Thought>("/api/bird/muse", { method: "POST" }, WORK_TIMEOUT_MS);
+    if (!res.success) {
+      resyncLater();
+      return null;
+    }
+    setThoughts((list) => [...list, res.data]);
+    return res.data;
+  }, [resyncLater]);
+
+  // ---------- you, rearranging ----------
+
+  const onMove = useCallback(
+    async (id: number, clusterId: number | null, from: { clusterId: number | null; placedBy: PlacedBy | null }) => {
+      const res = await api<Thought>(`/api/thoughts/${id}`, { method: "PATCH", body: JSON.stringify({ clusterId }) });
+      if (!res.success) {
+        world.current?.moveBubble(id, from.clusterId, from.placedBy);
+        flash(res.error);
+        resync();
+        return;
+      }
+      setThoughts((list) => list.map((t) => (t.id === id ? res.data : t)));
+    },
+    // `world` is a stable ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [flash, resync],
+  );
+
+  const onOpen = useCallback((id: number) => setOpenId(id), []);
+  const onOpenCluster = useCallback((id: number) => setOpenShelf(id), []);
+  const onOpenLink = useCallback((id: number) => setOpenLink(id), []);
+  const { world, failed } = useWorld(canvas, initial, {
+    greeting: hello,
+    say,
+    think,
+    tidy,
+    muse,
+    resync,
+    onOpen,
+    onOpenCluster,
+    onOpenLink,
+    onMove,
+  });
+
+  resyncRef.current = () => {
+    void api<Library>("/api/library").then((res) => {
+      if (!res.success) return;
+      setThoughts(res.data.thoughts);
+      setClusters(res.data.clusters);
+      setLinks(res.data.links);
+      world.current?.sync(res.data);
+    });
+  };
+
+  const changeShelf = useCallback(
+    async (id: number, patch: { name?: string; color?: ShelfColor }) => {
+      const res = await api<Cluster>(`/api/clusters/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      if (!res.success) {
+        flash(res.error);
+        return;
+      }
+      setClusters((list) => list.map((c) => (c.id === id ? res.data : c)));
+      world.current?.updateCluster(res.data);
+    },
+    [flash, world],
+  );
+
+  const popLink = useCallback(
+    async (id: number) => {
+      setOpenLink(null);
+      const res = await api<{ id: number }>(`/api/links/${id}`, { method: "DELETE" });
+      if (!res.success) {
+        flash(res.error);
+        return;
+      }
+      setLinks((list) => list.filter((l) => l.id !== id));
+      world.current?.removeLink(id);
+    },
+    [flash, world],
+  );
+
+  // ---------- writing ----------
 
   const onComposing = useCallback((v: boolean) => world.current?.setComposing(v), [world]);
   const onKeystroke = useCallback((n: number) => world.current?.keystroke(n), [world]);
@@ -118,6 +246,7 @@ export function Mind({ initialThoughts }: { initialThoughts: Thought[] }) {
       setOpenId(null);
       world.current?.focus(null);
       setThoughts((list) => list.filter((t) => t.id !== id));
+      setLinks((list) => list.filter((l) => l.a !== id && l.b !== id));
       await world.current?.pop(id);
       say(pick(POP), 2.5);
     },
@@ -133,6 +262,9 @@ export function Mind({ initialThoughts }: { initialThoughts: Thought[] }) {
   useEffect(() => {
     if (open) world.current?.focus(open.id);
   }, [open, world]);
+  const shelf = openShelf === null ? null : (clusters.find((c) => c.id === openShelf) ?? null);
+  const link: Link | null = openLink === null ? null : (links.find((l) => l.id === openLink) ?? null);
+  const mine = thoughts.filter((t) => t.source !== "bird").length;
 
   const anchor = useCallback(() => world.current?.birdAnchor() ?? null, [world]);
 
@@ -152,7 +284,7 @@ export function Mind({ initialThoughts }: { initialThoughts: Thought[] }) {
       >
         <SpeakerIcon muted={muted} />
       </button>
-      {thoughts.length > 0 && <p className="count">{thoughts.length === 1 ? "1 bubble" : `${thoughts.length} bubbles`}</p>}
+      {mine > 0 && <p className="count">{mine === 1 ? "1 bubble" : `${mine} bubbles`}</p>}
 
       {failed && <p className="fallback">{failed}</p>}
       {toast && (
@@ -170,7 +302,23 @@ export function Mind({ initialThoughts }: { initialThoughts: Thought[] }) {
         onKeystroke={onKeystroke}
         onRelease={onRelease}
       />
-      {open && <Reader thought={open} onClose={close} onLetGo={onLetGo} />}
+      {open && (
+        <Reader
+          thought={open}
+          shelf={clusters.find((c) => c.id === open.clusterId && c.kind === "shelf")?.name ?? null}
+          onClose={close}
+          onLetGo={onLetGo}
+        />
+      )}
+      {shelf && (
+        <ShelfCard
+          shelf={shelf}
+          count={thoughts.filter((t) => t.clusterId === shelf.id).length}
+          onClose={() => setOpenShelf(null)}
+          onChange={changeShelf}
+        />
+      )}
+      {link && <LinkCard word={link.word} onClose={() => setOpenLink(null)} onPop={() => void popLink(link.id)} />}
     </main>
   );
 }

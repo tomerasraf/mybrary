@@ -231,3 +231,37 @@ export function touch(): void {
   o2.frequency.value = o.frequency.value * 1.5;
   o2.connect(env(c, t, 0.03, 0.004, 0.35)).connect(out);
 }
+
+/** A bubble squishing through a shelf's wall: a wet, low wobble. */
+export function squish(size = 1): void {
+  const a = ready();
+  if (!a) return;
+  const { c, out, t } = a;
+  const o = tone(c, "sine", t, 0.4);
+  const f = vary(240, 0.12) / Math.sqrt(size);
+  o.frequency.setValueAtTime(f, t);
+  o.frequency.exponentialRampToValueAtTime(f * 1.8, t + 0.12);
+  o.frequency.exponentialRampToValueAtTime(f * 0.7, t + 0.34);
+  const lfo = tone(c, "sine", t, 0.4);
+  lfo.frequency.value = 22;
+  const depth = c.createGain();
+  depth.gain.value = f * 0.12;
+  lfo.connect(depth).connect(o.frequency);
+  o.connect(env(c, t, 0.22, 0.01, 0.32)).connect(out);
+}
+
+/** Little wingbeats as the bird takes off. */
+export function flutter(beats = 4): void {
+  const a = ready();
+  if (!a) return;
+  const { c, out, t } = a;
+  for (let i = 0; i < beats; i++) {
+    const st = t + i * 0.075;
+    const n = noise(c, st, 0.05);
+    const bp = c.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = vary(900, 0.2);
+    bp.Q.value = 1.2;
+    n.connect(bp).connect(env(c, st, 0.09, 0.004, 0.04)).connect(out);
+  }
+}
