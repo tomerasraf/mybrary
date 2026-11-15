@@ -45,6 +45,8 @@ It reads every bubble to the end, remembers the names in it, and only says what 
 
 Tap the little bird button next to the mic. Nothing you say there becomes a bubble.
 
+New here? A short tour shows you around on your first visit, and the **?** button brings the guide back any time.
+
 | | |
 |---|---|
 | 💬 **Ask it** | "what did I say about the trip?" It answers only from your bubbles, and they glow. |

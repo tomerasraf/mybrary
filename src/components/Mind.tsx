@@ -12,6 +12,7 @@ import { loadMuted, setMuted, unlockAudio } from "@/world/sound";
 import { BirdSpeech, type Line } from "./BirdSpeech";
 import { Composer } from "./Composer";
 import { Find } from "./Find";
+import { Guide } from "./Guide";
 import { Reader } from "./Reader";
 import { LinkCard, ShelfCard } from "./ShelfCard";
 import { StepsNote } from "./StepsNote";
@@ -403,6 +404,7 @@ export function Mind({ initial }: { initial: Library }) {
       >
         <SpeakerIcon muted={muted} />
       </button>
+      <Guide />
       {mine > 0 && <p className="count">{mine === 1 ? "1 bubble" : `${mine} bubbles`}</p>}
       {mine > 0 && (
         <Find thoughts={thoughts} onMark={(ids) => world.current?.mark(ids)} onFly={(id) => world.current?.flyTo(id)} />
