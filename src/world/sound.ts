@@ -115,22 +115,78 @@ export function swell(seconds = 1.4): void {
   o.connect(g).connect(out);
 }
 
-/** One typewriter key strike. */
-export function clack(): void {
+/**
+ * One typewriter key strike: the snap of the typebar on the page, the thunk of the key bottoming out,
+ * and a faint ring from the machine's body. No two are quite alike. `space`: the duller, lower bar.
+ */
+export function clack(space = false): void {
   const a = ready();
   if (!a) return;
   const { c, out, t } = a;
+  const loud = vary(1, 0.18);
+
   const n = noise(c, t, 0.05);
   const bp = c.createBiquadFilter();
   bp.type = "bandpass";
-  bp.frequency.value = vary(3200, 0.25);
-  bp.Q.value = 2.5;
-  n.connect(bp).connect(env(c, t, 0.35, 0.001, 0.035)).connect(out);
+  bp.frequency.value = vary(space ? 1500 : 3400, 0.22);
+  bp.Q.value = space ? 1.4 : 2.8;
+  n.connect(bp).connect(env(c, t, (space ? 0.22 : 0.36) * loud, 0.001, space ? 0.05 : 0.03)).connect(out);
 
-  const thump = tone(c, "triangle", t, 0.06);
-  thump.frequency.setValueAtTime(vary(180, 0.1), t);
-  thump.frequency.exponentialRampToValueAtTime(70, t + 0.05);
-  thump.connect(env(c, t, 0.22, 0.001, 0.05)).connect(out);
+  const thump = tone(c, "triangle", t, 0.07);
+  thump.frequency.setValueAtTime(vary(space ? 130 : 190, 0.12), t);
+  thump.frequency.exponentialRampToValueAtTime(64, t + 0.055);
+  thump.connect(env(c, t, (space ? 0.3 : 0.2) * loud, 0.001, 0.055)).connect(out);
+
+  if (!space) {
+    // The metal body answers, very quietly.
+    const ring = tone(c, "sine", t, 0.12);
+    ring.frequency.value = vary(2600, 0.3);
+    ring.connect(env(c, t, 0.018 * loud, 0.002, 0.1)).connect(out);
+  }
+}
+
+/** The carriage zipping back to the start of a new line, with its little bell. */
+export function carriageReturn(): void {
+  const a = ready();
+  if (!a) return;
+  const { c, out, t } = a;
+  const o = tone(c, "sine", t, 0.9);
+  o.frequency.value = 2349;
+  o.connect(env(c, t, 0.07, 0.003, 0.8)).connect(out);
+
+  const zip = noise(c, t + 0.05, 0.24);
+  const bp = c.createBiquadFilter();
+  bp.type = "bandpass";
+  bp.Q.value = 5;
+  bp.frequency.setValueAtTime(900, t + 0.05);
+  bp.frequency.exponentialRampToValueAtTime(2600, t + 0.27);
+  zip.connect(bp).connect(env(c, t + 0.05, 0.16, 0.02, 0.2)).connect(out);
+
+  const stop = tone(c, "triangle", t + 0.27, 0.07);
+  stop.frequency.setValueAtTime(150, t + 0.27);
+  stop.frequency.exponentialRampToValueAtTime(70, t + 0.33);
+  stop.connect(env(c, t + 0.27, 0.22, 0.001, 0.06)).connect(out);
+}
+
+/** The machine's rollers grabbing the page and pulling it in a little. */
+export function tug(): void {
+  const a = ready();
+  if (!a) return;
+  const { c, out, t } = a;
+  const n = noise(c, t, 0.14);
+  const bp = c.createBiquadFilter();
+  bp.type = "bandpass";
+  bp.Q.value = 3;
+  bp.frequency.setValueAtTime(vary(700, 0.1), t);
+  bp.frequency.linearRampToValueAtTime(1500, t + 0.12);
+  n.connect(bp).connect(env(c, t, 0.2, 0.01, 0.11)).connect(out);
+  const motor = tone(c, "square", t, 0.13);
+  motor.frequency.setValueAtTime(110, t);
+  motor.frequency.linearRampToValueAtTime(150, t + 0.12);
+  const lp = c.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.frequency.value = 500;
+  motor.connect(lp).connect(env(c, t, 0.05, 0.01, 0.11)).connect(out);
 }
 
 /** The carriage-return bell. */

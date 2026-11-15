@@ -52,9 +52,42 @@ const TAP_MS = 350;
 const FLY_DISTANCE = 6.2;
 const HOME = new THREE.Vector3(1.5, 1.45, 0.6);
 
+// The bird's brain may be running on the same graphics card as this world, so the world draws no more
+// than it needs to: smoothly while something is happening, and half as often when all is calm.
+/** Shortest time between two drawn frames while you're doing something or the bird is at its ritual (ms). */
+const LIVELY_FRAME_MS = 1000 / 90;
+/** ...and while nothing much is going on: about 30 frames a second. */
+const CALM_FRAME_MS = 1000 / 30;
+/** A display's frames never land exactly on time; this much early still counts. */
+const FRAME_SLACK_MS = 1.5;
+/** How long after your last touch the world stays lively. */
+const LIVELY_AFTER_INPUT_MS = 2500;
+/** Screens sharper than this are drawn at this sharpness: past it, you pay a lot of pixels for little. */
+const MAX_PIXEL_RATIO = 1.5;
+
+/** A soft pool of colour on the floor, so the tube, machine and desk stand on something. */
+function stageTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const g = canvas.getContext("2d");
+  if (g) {
+    const fade = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    fade.addColorStop(0, "rgba(196, 190, 236, 0.3)");
+    fade.addColorStop(0.45, "rgba(202, 214, 240, 0.16)");
+    fade.addColorStop(1, "rgba(220, 226, 240, 0)");
+    g.fillStyle = fade;
+    g.fillRect(0, 0, size, size);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): WorldHandle {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // "low-power": on a laptop with two graphics chips, this asks for the small one and leaves the big one to the model.
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: "low-power" });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -83,17 +116,25 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   const sun = new THREE.DirectionalLight(0xfff6ea, 2.0);
   sun.position.set(4, 9, 6);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -6;
-  sun.shadow.camera.right = 6;
-  sun.shadow.camera.top = 6;
-  sun.shadow.camera.bottom = -6;
+  // Only the stage casts real shadows (bubbles have their own soft blobs), so a small, tight map is enough.
+  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.camera.left = -4.5;
+  sun.shadow.camera.right = 4.5;
+  sun.shadow.camera.top = 4.5;
+  sun.shadow.camera.bottom = -4.5;
   sun.shadow.radius = 6;
   sun.shadow.bias = -0.0005;
   scene.add(sun);
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80).rotateX(-Math.PI / 2), new THREE.ShadowMaterial({ opacity: 0.12 }));
   floor.receiveShadow = true;
-  scene.add(floor);
+  const stageMap = stageTexture();
+  const stage = new THREE.Mesh(
+    new THREE.PlaneGeometry(11, 11).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ map: stageMap, transparent: true, depthWrite: false }),
+  );
+  stage.position.set(1.1, -0.002, 0.5);
+  stage.renderOrder = -1;
+  scene.add(stage, floor);
 
   const animator = new Animator();
   const tube = new Tube(animator);
@@ -131,6 +172,8 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   const dragHit = new THREE.Vector3();
   const camDir = new THREE.Vector3();
   let idleSince = performance.now();
+  let lastInput = performance.now();
+  const onWheel = () => (lastInput = performance.now());
 
   const toNdc = (e: PointerEvent) => {
     const r = canvas.getBoundingClientRect();
@@ -140,6 +183,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   const overBird = () => raycaster.intersectObject(bird.root, true).length > 0;
 
   const onMove = (e: PointerEvent) => {
+    lastInput = performance.now();
     if (down && e.pointerId !== down.id) return;
     toNdc(e);
     if (down?.bubble != null) {
@@ -257,6 +301,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   canvas.addEventListener("pointerdown", onDown, { capture: true });
   canvas.addEventListener("pointerup", onUp);
   canvas.addEventListener("pointercancel", onCancel);
+  canvas.addEventListener("wheel", onWheel, { passive: true });
 
   // While you're not steering, the camera eases back far enough to see the whole library.
   const fromTarget = new THREE.Vector3();
@@ -289,7 +334,10 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
   const frame = () => {
     raf = requestAnimationFrame(frame);
     const now = performance.now();
-    const dt = Math.min((now - last) / 1000, 1 / 20);
+    // Skip this frame if the last one was drawn recently enough for what's going on.
+    const lively = down !== null || fly !== null || brain.lively || now - lastInput < LIVELY_AFTER_INPUT_MS;
+    if (now - last < (lively ? LIVELY_FRAME_MS : CALM_FRAME_MS) - FRAME_SLACK_MS) return;
+    const dt = Math.min((now - last) / 1000, 1 / 15);
     last = now;
     time += dt;
     if (!controls.autoRotate && performance.now() - idleSince > 20_000) {
@@ -350,6 +398,9 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
       canvas.removeEventListener("pointerdown", onDown, { capture: true });
       canvas.removeEventListener("pointerup", onUp);
       canvas.removeEventListener("pointercancel", onCancel);
+      canvas.removeEventListener("wheel", onWheel);
+      desk.dispose();
+      stageMap.dispose();
       controls.dispose();
       library.disposeAll();
       renderer.dispose();
