@@ -35,6 +35,8 @@ export interface Thought {
   /** The shelf (or the bird's nook) this bubble sits in, or null when it floats loose. */
   clusterId: number | null;
   placedBy: PlacedBy | null;
+  /** Why the bird put it on its shelf, in the bird's words. */
+  why?: string | null;
   createdAt: string;
 }
 
@@ -45,6 +47,7 @@ export interface ThoughtRow {
   prompt: string | null;
   cluster_id: number | null;
   placed_by: string | null;
+  why?: string | null;
   created_at: string;
 }
 
@@ -56,6 +59,7 @@ export function toThought(row: ThoughtRow): Thought {
     prompt: row.prompt ?? null,
     clusterId: row.cluster_id ?? null,
     placedBy: row.placed_by === "bird" || row.placed_by === "you" ? row.placed_by : null,
+    why: row.why ?? null,
     createdAt: row.created_at,
   };
 }

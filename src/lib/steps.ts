@@ -16,13 +16,18 @@ export interface Step {
   status: StepStatus;
   createdAt: string;
   closedAt: string | null;
+  /** Put off until then; it stays off the note meanwhile. */
+  snoozeUntil?: string | null;
 }
 
 export const STEP_MAX = 120;
 /** The bird stops suggesting when this many are still waiting for you. */
 export const MAX_OPEN_STEPS = 3;
 
-export const StepPatch = z.object({ status: z.enum(["done", "dismissed"]) });
+/** How long "later" puts a step off for. */
+export const LATER_DAYS = 3;
+
+export const StepPatch = z.object({ status: z.enum(["done", "dismissed", "later"]) });
 
 interface Row {
   id: number;
@@ -32,6 +37,7 @@ interface Row {
   status: string;
   created_at: string;
   closed_at: string | null;
+  snooze_until?: string | null;
 }
 
 const toStep = (r: Row): Step => ({
@@ -42,10 +48,24 @@ const toStep = (r: Row): Step => ({
   status: r.status === "done" || r.status === "dismissed" ? r.status : "open",
   createdAt: r.created_at,
   closedAt: r.closed_at,
+  snoozeUntil: r.snooze_until ?? null,
 });
 
-export function openSteps(db: DB): Step[] {
-  return (db.prepare("SELECT * FROM steps WHERE status = 'open' ORDER BY id ASC").all() as Row[]).map(toStep);
+/** Steps waiting for you now. Ones you put off stay away until their time comes. */
+export function openSteps(db: DB, now: Date = new Date()): Step[] {
+  const rows = db
+    .prepare("SELECT * FROM steps WHERE status = 'open' AND (snooze_until IS NULL OR snooze_until <= ?) ORDER BY id ASC")
+    .all(now.toISOString()) as Row[];
+  return rows.map(toStep);
+}
+
+/** Not now: the step leaves the note and comes back in a few days. Null if it isn't open any more. */
+export function snoozeStep(db: DB, id: number, now: Date = new Date(), days = LATER_DAYS): Step | null {
+  const until = new Date(now.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
+  const row = db.prepare("UPDATE steps SET snooze_until = ? WHERE id = ? AND status = 'open' RETURNING *").get(until, id) as
+    | Row
+    | undefined;
+  return row ? toStep(row) : null;
 }
 
 /** The latest steps, whatever became of them, oldest first. */

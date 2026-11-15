@@ -1,7 +1,12 @@
 import type { DB } from "./db";
 
-/** 'note': something the bird has come to understand. 'said': a line it said out loud. */
-export type NoteKind = "note" | "said";
+/**
+ * 'note': something the bird has come to understand. 'said': a line it said out loud.
+ * 'waved': a question of its you waved away. 'pattern': something it noticed coming back and told you.
+ * 'aged': an old bubble it asked you about.
+ */
+export type NoteKind = "note" | "said" | "waved" | "pattern" | "aged";
+const KINDS: readonly string[] = ["note", "said", "waved", "pattern", "aged"];
 
 export interface Note {
   id: number;
@@ -25,7 +30,7 @@ interface Row {
 
 const toNote = (r: Row): Note => ({
   id: r.id,
-  kind: r.kind === "said" ? "said" : "note",
+  kind: KINDS.includes(r.kind) ? (r.kind as NoteKind) : "note",
   body: r.body,
   thoughtId: r.thought_id,
   createdAt: r.created_at,
@@ -55,4 +60,9 @@ export function recentNotes(db: DB, kind: NoteKind, limit: number): Note[] {
     .prepare("SELECT * FROM (SELECT * FROM notes WHERE kind = ? ORDER BY id DESC LIMIT ?) ORDER BY id ASC")
     .all(kind, limit) as Row[];
   return rows.map(toNote);
+}
+
+/** Tears one page out. */
+export function removeNote(db: DB, kind: NoteKind, id: number): boolean {
+  return db.prepare("DELETE FROM notes WHERE kind = ? AND id = ?").run(kind, id).changes > 0;
 }

@@ -68,6 +68,12 @@ CREATE TABLE IF NOT EXISTS steps (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   closed_at TEXT
 );
+-- Links you popped. The bird never draws them again.
+CREATE TABLE IF NOT EXISTS unlinks (
+  a INTEGER NOT NULL,
+  b INTEGER NOT NULL,
+  PRIMARY KEY (a, b)
+);
 `;
 
 /** Columns added after the first release. */
@@ -84,9 +90,25 @@ function migrate(db: Database.Database): void {
     db.exec("DELETE FROM notes");
     db.pragma("user_version = 1");
   }
+  // Why the bird put a bubble where it is, in its own words.
+  addColumn(db, "thoughts", "why", "TEXT");
+  // What belongs on a shelf, who wrote that ('bird' or 'you'), and how many bubbles it held when the bird wrote it.
+  addColumn(db, "clusters", "about", "TEXT");
+  addColumn(db, "clusters", "about_by", "TEXT");
+  addColumn(db, "clusters", "about_n", "INTEGER");
+  // The words in each bubble that made the bird link them.
+  addColumn(db, "links", "quote_a", "TEXT");
+  addColumn(db, "links", "quote_b", "TEXT");
+  // A step you put off comes back after this moment.
+  addColumn(db, "steps", "snooze_until", "TEXT");
   // The bird's nook always exists.
   const nook = db.prepare("SELECT id FROM clusters WHERE kind = 'nook'").get();
   if (!nook) db.prepare("INSERT INTO clusters (name, color, kind) VALUES (?, 'butter', 'nook')").run("the bird's thoughts");
+}
+
+function addColumn(db: Database.Database, table: string, column: string, type: string): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
 }
 
 export function createDb(file: string): DB {

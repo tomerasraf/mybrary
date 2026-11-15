@@ -19,6 +19,8 @@ export interface PonderInput {
   /** What the bird knows for sure, written out for its brain. */
   knowledge: string;
   said: Note[];
+  /** Questions of the bird's that the person waved away. */
+  waved?: string[];
 }
 
 export interface PonderResult {
@@ -123,6 +125,13 @@ export function buildUser(input: PonderInput): string {
   const parts = [
     input.knowledge,
     `<you_said_recently>\n${said}\n</you_said_recently>`,
+    ...(input.waved?.length
+      ? [
+          `<questions_they_waved_away note="they did not want these. never ask them, or anything like them, again">\n${input.waved
+            .map((q) => `- ${q}`)
+            .join("\n")}\n</questions_they_waved_away>`,
+        ]
+      : []),
     `<other_bubbles>\n${others.length ? others.map(other).join("\n") : "(none)"}\n</other_bubbles>`,
     `<this_bubble>\n${bubbleTag(input.focus, FOCUS_MAX)}\n</this_bubble>`,
   ];
@@ -160,6 +169,8 @@ export function problemWith(result: PonderResult, input: PonderInput): string | 
   const lang = languageOf(input.focus.body);
   if (!grounded(result.detail, input.focus.body)) return "the detail must be words copied exactly from this bubble";
   if (lang && languageOf(result.line) !== lang) return `bubble ${result.id} is written in ${lang}, so the line must be in ${lang}`;
+  const waved = result.line.endsWith("?") ? input.waved?.find((q) => tooSimilar(q, result.line)) : undefined;
+  if (waved) return `they waved away the question "${waved}"; don't ask it again, say something else`;
   const repeat = input.said.find((n) => tooSimilar(n.body, result.line));
   if (repeat) return `you already said almost the same thing ("${repeat.body}"); find a different angle`;
   return null;
@@ -188,6 +199,7 @@ export async function ponder(input: PonderInput): Promise<PonderResult> {
 
   // One more try with the problem spelled out.
   const second = await ask(`\n\nYour first try was: "${first.line}". Problem: ${problem}. Try again.`, RETRY_TEMPERATURE);
-  if (problemWith(second, input)?.startsWith("you already said")) throw new RepeatError();
+  const still = problemWith(second, input);
+  if (still?.startsWith("you already said") || still?.startsWith("they waved away")) throw new RepeatError();
   return second;
 }

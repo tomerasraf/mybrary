@@ -4,11 +4,15 @@ import type { DB } from "../db";
 import { knowledgeText, listFacts } from "../knowledge";
 import {
   LINK_WORD_MAX,
+  SHELF_ABOUT_MAX,
   SHELF_NAME_MAX,
+  WHY_MAX,
   addLink,
   createShelf,
   getLibrary,
   personThoughts,
+  describeShelf,
+  poppedPairs,
   pruneEmptyShelves,
   sortable,
   tidyText,
@@ -93,9 +97,10 @@ export const PLACE_SCHEMA = {
 
 const PLACE_TASK = `Which shelf does this bubble belong on?
 
-- "reason": first, one sentence: what the bubble is mainly about, and which shelf (if any) is about that same thing. Use <what_you_know> to tell similar things apart.
+- "reason": first, one short sentence the person will read: what the bubble is mainly about, and which shelf (if any) is about that same thing. Use <what_you_know> to tell similar things apart.
 - "shelf": that shelf's id, or "none".
 - Choose a shelf only if the person would agree the bubble is about what that shelf's name says. Two different projects, people or places never share a shelf just because they are the same kind of thing.
+- A shelf's "holds" line says what belongs on it. When the person wrote it, it is the rule for that shelf.
 - Bubbles marked as placed by the person show what that shelf is really for.
 - "none" is a good answer. A wrong shelf is not.`;
 
@@ -110,7 +115,8 @@ function shelfText(lib: Library, cards: Map<number, Card>, except: number): stri
         const gist = cards.get(t.id)?.gist ?? clip(t.body, 200);
         return `- ${gist}${t.placedBy === "you" ? " (placed here by the person)" : ""}`;
       });
-      return `<shelf id="${c.id}" name="${c.name}">\n${lines.length ? lines.join("\n") : "(nothing else on it)"}\n</shelf>`;
+      const holds = c.about ? `holds: ${c.about}${c.aboutBy === "you" ? " (the person wrote this)" : ""}\n` : "";
+      return `<shelf id="${c.id}" name="${c.name}">\n${holds}${lines.length ? lines.join("\n") : "(nothing else on it)"}\n</shelf>`;
     })
     .join("\n");
 }
@@ -144,6 +150,12 @@ export function parsePlace(value: unknown, lib: Library): number | null {
   return shelvesOf(lib).some((c) => c.id === id) ? id : null;
 }
 
+/** The bird's one sentence on why, to show the person later. */
+export function parseReason(value: unknown): string | null {
+  const reason = (value as { reason?: unknown } | null)?.reason;
+  return typeof reason === "string" && reason.trim() ? tidyText(reason, WHY_MAX) : null;
+}
+
 // ---------- loose bubbles: new shelves ----------
 
 export const GROUP_SCHEMA = {
@@ -156,9 +168,10 @@ export const GROUP_SCHEMA = {
         properties: {
           reason: { type: "string" },
           name: { type: "string" },
+          holds: { type: "string" },
           bubbles: { type: "array", items: { type: "integer" } },
         },
-        required: ["reason", "name", "bubbles"],
+        required: ["reason", "name", "holds", "bubbles"],
         additionalProperties: false,
       },
     },
@@ -172,6 +185,7 @@ const GROUP_TASK = `These loose bubbles fit none of your shelves. Do any of them
 - A new shelf needs at least two bubbles that are about the very same thing: the same project, the same person, the same plan. Not just the same kind of thing.
 - "reason": first, one sentence on what exactly those bubbles share.
 - "name": at most 3 words, lowercase, naming that one thing in the person's own words. Never vague, like "thoughts", "life", "misc" or "random". (The shape of a good name, not ideas to reuse: "tax papers", "the wedding", "running".)
+- "holds": one plain sentence saying what belongs on this shelf, so you can tell later what goes on it and what doesn't.
 - "bubbles": their ids.
 - Most of the time the right answer is an empty list. A loose bubble is fine; a forced shelf is not.`;
 
@@ -188,22 +202,42 @@ export function buildGroupUser(lib: Library, cards: Map<number, Card>, knowledge
 }
 
 const RawGroup = z.object({
-  shelves: z.array(z.object({ name: z.string(), bubbles: z.array(z.coerce.number().int()) })).default([]),
+  shelves: z
+    .array(
+      z.object({
+        name: z.string(),
+        bubbles: z.array(z.coerce.number().int()),
+        reason: z.string().optional(),
+        holds: z.string().optional(),
+      }),
+    )
+    .default([]),
 });
 
+export interface NewShelf {
+  name: string;
+  bubbles: number[];
+  /** What the bubbles share, in the bird's words. */
+  reason?: string;
+  /** What belongs on the shelf. */
+  holds?: string;
+}
+
 /** New shelves worth making: a real name, and at least two of the loose bubbles each. */
-export function parseGroups(value: unknown, lib: Library, loose: readonly Thought[]): { name: string; bubbles: number[] }[] {
+export function parseGroups(value: unknown, lib: Library, loose: readonly Thought[]): NewShelf[] {
   const raw = RawGroup.parse(value);
   const free = new Set(loose.map((t) => t.id));
   const taken = new Set(lib.clusters.map((c) => c.name.toLowerCase()));
-  const out: { name: string; bubbles: number[] }[] = [];
+  const out: NewShelf[] = [];
   for (const s of raw.shelves) {
     const name = shelfName(s.name);
     const bubbles = [...new Set(s.bubbles)].filter((id) => free.has(id));
     if (out.length >= MAX_NEW_SHELVES || !name || VAGUE.has(name) || taken.has(name) || bubbles.length < 2) continue;
     taken.add(name);
     for (const id of bubbles) free.delete(id);
-    out.push({ name, bubbles });
+    const reason = tidyText(s.reason ?? "", WHY_MAX);
+    const holds = tidyText(s.holds ?? "", SHELF_ABOUT_MAX);
+    out.push({ name, bubbles, ...(reason ? { reason } : {}), ...(holds ? { holds } : {}) });
   }
   return out;
 }
@@ -289,24 +323,30 @@ const RawLink = z.object({
   quote_b: z.string().default(""),
 });
 
-/** The word for a link, when the model can show the connection in both bubbles' own words. */
-export function parseLink(value: unknown, c: LinkCandidate): string | null {
+/** The word for a link and the words that prove it, when the model can show the connection in both bubbles. */
+export function parseLinkProof(value: unknown, c: LinkCandidate): { word: string; quotes: [string, string] } | null {
   const raw = RawLink.parse(value);
   const word = tidyText(raw.word, LINK_WORD_MAX).toLowerCase().split(" ").slice(0, 2).join(" ");
   if (!raw.connected || !word) return null;
-  return grounded(raw.quote_a, c.a.body) && grounded(raw.quote_b, c.b.body) ? word : null;
+  if (!grounded(raw.quote_a, c.a.body) || !grounded(raw.quote_b, c.b.body)) return null;
+  return { word, quotes: [raw.quote_a.trim(), raw.quote_b.trim()] };
+}
+
+/** Just the word. */
+export function parseLink(value: unknown, c: LinkCandidate): string | null {
+  return parseLinkProof(value, c)?.word ?? null;
 }
 
 // ---------- doing it ----------
 
 /** Moves a bubble for the bird, unless something changed since it decided. Returns whether it moved. */
-function fileForBird(db: DB, t: Thought, clusterId: number | null): boolean {
+function fileForBird(db: DB, t: Thought, clusterId: number | null, why: string | null = null): boolean {
   const moved = db
     .prepare(
-      `UPDATE thoughts SET cluster_id = ?, placed_by = ?
+      `UPDATE thoughts SET cluster_id = ?, placed_by = ?, why = ?
        WHERE id = ? AND source != 'bird' AND cluster_id IS ? AND (placed_by IS NULL OR placed_by = 'bird')`,
     )
-    .run(clusterId, clusterId === null ? null : "bird", t.id, t.clusterId);
+    .run(clusterId, clusterId === null ? null : "bird", clusterId === null ? null : why, t.id, t.clusterId);
   return moved.changes > 0;
 }
 
@@ -321,7 +361,7 @@ const shelfSignature = (lib: Library) =>
 const place = async (lib: Library, cards: Map<number, Card>, knowledge: string, t: Thought) => {
   const user = buildPlaceUser(lib, cards, knowledge, t);
   const { value } = await askJson({ system: LIBRARIAN, user, schema: PLACE_SCHEMA, maxTokens: 220, temperature: 0.2 });
-  return parsePlace(value, lib);
+  return { target: parsePlace(value, lib), why: parseReason(value) };
 };
 
 function closingLine(steps: readonly TidyStep[], clusters: readonly Cluster[]): string | null {
@@ -368,14 +408,18 @@ export async function tidy(db: DB): Promise<TidyResult> {
     if (loose && shelvesOf(lib).length === 0) continue;
     const signature = shelfSignature(lib);
     if (loose && looseSeen.get(t.id) === signature) continue;
-    const target = await place(lib, getCards(db), knowledge, t);
+    const { target, why } = await place(lib, getCards(db), knowledge, t);
     if (target === t.clusterId) {
       if (loose) looseSeen.set(t.id, signature);
-      else markSorted(db, t.id);
+      else {
+        markSorted(db, t.id);
+        // It read the bubble properly this time: now it can say why it's there.
+        if (why) db.prepare("UPDATE thoughts SET why = ? WHERE id = ? AND placed_by = 'bird' AND why IS NULL").run(why, t.id);
+      }
       continue;
     }
     const moved = db.transaction(() => {
-      if (!fileForBird(db, t, target)) return false;
+      if (!fileForBird(db, t, target, why)) return false;
       markSorted(db, t.id);
       pruneEmptyShelves(db);
       return true;
@@ -396,8 +440,9 @@ export async function tidy(db: DB): Promise<TidyResult> {
     for (const g of parseGroups(value, lib2, stillLoose)) {
       db.transaction(() => {
         const shelf = createShelf(db, g.name);
-        const filed = stillLoose.filter((t) => g.bubbles.includes(t.id) && fileForBird(db, t, shelf.id));
+        const filed = stillLoose.filter((t) => g.bubbles.includes(t.id) && fileForBird(db, t, shelf.id, g.reason ?? null));
         if (filed.length === 0) return;
+        if (g.holds) describeShelf(db, shelf.id, g.holds, filed.length);
         steps.push({ kind: "shelf", cluster: shelf });
         for (const t of filed) {
           markSorted(db, t.id);
@@ -411,7 +456,9 @@ export async function tidy(db: DB): Promise<TidyResult> {
   // 3. Links between bubbles on different shelves that name the same thing.
   const lib3 = getLibrary(db);
   const names = listFacts(db).flatMap((f) => (f.name ? [f.name] : []));
-  for (const c of linkCandidates(lib3, getCards(db), names, tried).slice(0, MAX_LINK_TRIES)) {
+  // Never a pair it already asked about, or one whose link you popped.
+  const skip = new Set([...tried, ...poppedPairs(db)]);
+  for (const c of linkCandidates(lib3, getCards(db), names, skip).slice(0, MAX_LINK_TRIES)) {
     if (!inTime()) break;
     tried.add(pairKey(c.a.id, c.b.id));
     const { value } = await askJson({
@@ -421,8 +468,8 @@ export async function tidy(db: DB): Promise<TidyResult> {
       maxTokens: 260,
       temperature: 0.2,
     });
-    const word = parseLink(value, c);
-    const link = word ? addLink(db, c.a.id, c.b.id, word) : null;
+    const proof = parseLinkProof(value, c);
+    const link = proof ? addLink(db, c.a.id, c.b.id, proof.word, proof.quotes) : null;
     if (link) steps.push({ kind: "link", link });
   }
 

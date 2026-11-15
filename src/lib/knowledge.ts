@@ -6,7 +6,8 @@ import type { DB } from "./db";
 
 export interface Fact {
   id: number;
-  kind: "fact" | "rule";
+  /** 'waved': a question of the bird's you didn't want (kept in its notebook, shown with the rest). */
+  kind: "fact" | "rule" | "waved";
   /** The person, project or place (facts only). */
   name: string | null;
   body: string;
@@ -15,7 +16,7 @@ export interface Fact {
 
 export const FACT_NAME_MAX = 40;
 export const FACT_BODY_MAX = 160;
-export const RULE_MAX = 200;
+export const RULE_MAX = 300;
 const FACTS_SHOWN = 40;
 const RULES_SHOWN = 12;
 
@@ -50,7 +51,7 @@ export function learnFact(db: DB, name: string, what: string, thoughtId: number)
 }
 
 /** Something you told the bird to do. */
-export function learnRule(db: DB, rule: string, thoughtId: number): void {
+export function learnRule(db: DB, rule: string, thoughtId: number | null): void {
   const body = flat(rule, RULE_MAX);
   if (!body) return;
   const same = db.prepare("SELECT id FROM facts WHERE kind = 'rule' AND lower(body) = lower(?)").get(body);
@@ -91,6 +92,17 @@ export function knowledgeText(db: DB): string {
     );
   }
   return parts.join("\n\n");
+}
+
+/** You corrected something the bird knows. Returns the new version, or null when it's gone or empty. */
+export function editFact(db: DB, id: number, body: string): Fact | null {
+  const current = db.prepare("SELECT * FROM facts WHERE id = ?").get(id) as Row | undefined;
+  if (!current) return null;
+  const text = flat(body, current.kind === "rule" ? RULE_MAX : FACT_BODY_MAX);
+  if (!text) return null;
+  // Yours now: popping the bubble it first came from no longer takes it away.
+  const row = db.prepare("UPDATE facts SET body = ?, thought_id = NULL WHERE id = ? RETURNING *").get(text, id) as Row;
+  return toFact(row);
 }
 
 /** Forgets one thing, because you said it was wrong. */
