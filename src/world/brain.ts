@@ -3,7 +3,7 @@ import type { TidyResult } from "@/lib/library";
 import type { Step } from "@/lib/steps";
 import type { Thought } from "@/lib/thoughts";
 import { BORED, IDLE, INSPECT, JOY, LISTENING, PLANNING, SORTING, WRITING, pick } from "@/lib/bird/lines";
-import { Animator, Cancelled, ease } from "./anim";
+import { Animator, Cancelled } from "./anim";
 import type { Bird } from "./bird";
 import type { Desk } from "./desk";
 import { clampToRing } from "./layout";
@@ -70,6 +70,7 @@ const rand = (a: number, b: number) => a + Math.random() * (b - a);
 /** Decides what the bird is doing, one behaviour at a time. */
 export class Brain {
   private composing = false;
+  private delivering = false;
   private queue: Thought[] = [];
   private ctl = new AbortController();
   private disposed = false;
@@ -124,11 +125,19 @@ export class Brain {
 
   /** Text arrived: the bird types, if it is at its desk. */
   keystroke(textLength: number): void {
-    this.desk.setPaper(0.25 + textLength / 240);
+    const newLine = this.desk.type(textLength);
     if (!this.bird.typing) return;
+    // Roughly every fifth key is the space bar: a lower, rounder sound.
+    const space = Math.random() < 0.2;
     this.bird.strike();
-    this.desk.strike();
-    sound.clack();
+    this.desk.strike(space);
+    sound.clack(space);
+    if (newLine) sound.carriageReturn();
+  }
+
+  /** Whether something is going on that deserves smooth motion: you're writing, or the bird is at its ritual. */
+  get lively(): boolean {
+    return this.composing || this.delivering || this.queue.length > 0;
   }
 
   /** A thought was saved; the bird will carry it to the tube. Resolves when the bubble is born. */
@@ -163,7 +172,14 @@ export class Brain {
       try {
         await this.motor.land();
         const next = this.queue.shift();
-        if (next) await this.deliverNow(next);
+        if (next) {
+          this.delivering = true;
+          try {
+            await this.deliverNow(next);
+          } finally {
+            this.delivering = false;
+          }
+        }
         else if (this.composing) await this.atDesk(signal);
         else if (this.lib.personCount === 0) await this.bored(signal);
         else if (this.wantsToTidy()) await this.tidyUp(signal);
@@ -460,18 +476,20 @@ export class Brain {
     await m.walkTo(this.desk.standAt, undefined, 1.8);
     await m.face(this.desk.facing);
     b.typing = true;
-    for (let i = 0; i < 5; i++) {
+    // A last flourish, then the full stop.
+    for (let i = 0; i < 6; i++) {
       this.keystroke(thought.body.length);
-      await a.wait(0.07);
+      await a.wait(i === 4 ? 0.16 : 0.075);
     }
     b.typing = false;
     sound.ding();
-    await a.wait(0.35);
+    await a.wait(0.4);
     sound.rip();
     const page = this.desk.tearPage();
     page.rotation.y = Math.PI / 2;
     b.holder.add(page);
     b.lean = 0.2;
+    await m.hop(1, 0.06);
 
     await m.walkTo(this.machine.standAt, undefined, 1.3);
     await m.face(Math.PI);
@@ -486,23 +504,14 @@ export class Brain {
     // Edge-on to the slot, the way the bird was holding it (the slot runs left to right).
     page.rotation.set(0, Math.PI / 2, 0);
     b.root.parent?.add(page);
-    const slot = this.machine.slot;
-    const from = world.clone();
-    await a.tween(0.45, (k) => {
-      page.position.lerpVectors(from, slot, k);
-      page.position.y += Math.sin(k * Math.PI) * 0.08;
-    });
-    await a.tween(
-      0.5,
-      (k) => {
-        page.position.set(slot.x, slot.y + 0.12 * (1 - k) - k * 0.2, slot.z);
-        page.scale.y = 1 - k;
-      },
-      ease.in,
-    );
+    page.geometry.computeBoundingBox();
+    const box = page.geometry.boundingBox;
+    await this.machine.takePage(page, box ? box.max.y - box.min.y : 0.24);
     page.parent?.remove(page);
     page.geometry.dispose();
-    (page.material as THREE.Material).dispose();
+    const pageMat = page.material as THREE.MeshStandardMaterial;
+    pageMat.map?.dispose();
+    pageMat.dispose();
     b.lean = 0;
 
     // Start thinking about it now: the brain needs a few seconds and the bubble takes a while to form.
