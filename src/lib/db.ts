@@ -68,6 +68,13 @@ CREATE TABLE IF NOT EXISTS steps (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   closed_at TEXT
 );
+-- The one page the bird keeps for you: what's on your mind right now, and at most one small step.
+CREATE TABLE IF NOT EXISTS page (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  lines TEXT NOT NULL DEFAULT '[]',
+  step TEXT,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
 -- Links you popped. The bird never draws them again.
 CREATE TABLE IF NOT EXISTS unlinks (
   a INTEGER NOT NULL,
@@ -101,6 +108,8 @@ function migrate(db: Database.Database): void {
   addColumn(db, "links", "quote_b", "TEXT");
   // A step you put off comes back after this moment.
   addColumn(db, "steps", "snooze_until", "TEXT");
+  // When the bird took a thought into the page. From then on its bubble no longer floats in the world.
+  addColumn(db, "thoughts", "settled_at", "TEXT");
   // The bird's nook always exists.
   const nook = db.prepare("SELECT id FROM clusters WHERE kind = 'nook'").get();
   if (!nook) db.prepare("INSERT INTO clusters (name, color, kind) VALUES (?, 'butter', 'nook')").run("the bird's thoughts");

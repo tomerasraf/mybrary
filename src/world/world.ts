@@ -14,18 +14,20 @@ export interface WorldOptions extends BrainHooks {
   fontFamily: string;
   greeting: string;
   onOpen: (id: number) => void;
-  /** You tapped a shelf (or the bird's nook). */
-  onOpenCluster: (id: number) => void;
+  /** You tapped a shelf (or the bird's nook). The world shows no shelves right now, so nothing calls this. */
+  onOpenCluster?: (id: number) => void;
   /** You tapped the word on a link. */
-  onOpenLink: (id: number) => void;
+  onOpenLink?: (id: number) => void;
   /** You dropped a bubble onto a shelf, or out onto the floor (null). It has already moved in the world. */
-  onMove: (id: number, clusterId: number | null, from: { clusterId: number | null; placedBy: PlacedBy | null }) => void;
+  onMove?: (id: number, clusterId: number | null, from: { clusterId: number | null; placedBy: PlacedBy | null }) => void;
 }
 
 export interface WorldHandle {
   load: (library: Library) => void;
   deliver: (thought: Thought) => void;
   pop: (id: number) => Promise<void>;
+  /** The bird took these thoughts into its page: their bubbles drift up and away, and it watches them go. */
+  settle: (ids: readonly number[]) => void;
   setComposing: (value: boolean) => void;
   keystroke: (textLength: number) => void;
   focus: (id: number | null) => void;
@@ -265,13 +267,13 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     const link = library.links.pick(raycaster);
     if (link !== null) {
       sound.touch();
-      opts.onOpenLink(link);
+      opts.onOpenLink?.(link);
       return;
     }
     const shelf = library.clusters.pick(raycaster);
     if (shelf) {
       sound.touch();
-      opts.onOpenCluster(shelf.id);
+      opts.onOpenCluster?.(shelf.id);
     }
   };
 
@@ -283,7 +285,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     if (dropped.shelf === from.clusterId) return; // back where it was
     library.move(dropped.id, dropped.shelf, "you");
     sound.pop(0.6);
-    opts.onMove(dropped.id, dropped.shelf, from);
+    opts.onMove?.(dropped.id, dropped.shelf, from);
   };
   /** Interrupted (a phone call, a second finger): the bubble goes back where it was. */
   const cancelPress = () => {
@@ -327,6 +329,17 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     if (there && (fly.dist === null || Math.abs(fromTarget.length() - fly.dist) < 0.05)) fly = null;
   };
 
+  // Thoughts the bird took into its page while their bubble couldn't leave yet (not born, still rising,
+  // or in your hand): each one leaves as soon as it floats.
+  const lateToSettle = new Set<number>();
+  const settleLate = () => {
+    for (const id of lateToSettle) {
+      if (!bubbles.isFloating(id)) continue;
+      lateToSettle.delete(id);
+      library.settle([id]);
+    }
+  };
+
   // ---------- loop ----------
   let last = performance.now();
   let time = 0;
@@ -353,6 +366,7 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     desk.update(dt);
     bird.update(dt, time);
     library.update(dt, time);
+    if (lateToSettle.size > 0) settleLate();
     controls.update();
     renderer.render(scene, camera);
   };
@@ -366,6 +380,14 @@ export function createWorld(canvas: HTMLCanvasElement, opts: WorldOptions): Worl
     pop: async (id) => {
       await bubbles.pop(id);
       library.removeThought(id);
+    },
+    settle: (ids) => {
+      // Only a bubble that floats freely can leave now. One that isn't born yet, is still rising, or is in
+      // your hand leaves as soon as it floats.
+      const ready = ids.filter((id) => bubbles.isFloating(id));
+      for (const id of ids) if (!ready.includes(id)) lateToSettle.add(id);
+      const from = library.settle(ready);
+      if (from) brain.seeOff(from);
     },
     setComposing: (value) => brain.setComposing(value),
     keystroke: (len) => brain.keystroke(len),

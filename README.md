@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  Say what's on your mind. A little bird types it up,<br>
-  and it floats away as a bubble.
+  Empty your head and leave lighter. Say what's on your mind, a little bird listens,<br>
+  and keeps one short page so you never have to read it all again.
 </p>
 
 <p align="center">
@@ -17,29 +17,24 @@
   <tr>
     <td align="center" width="33%"><img src="docs/media/step-1-write.jpg" alt="Writing a thought"><br><b>1 · Write it</b><br><sub>or just say it out loud</sub></td>
     <td align="center" width="33%"><img src="docs/media/step-2-bubble.jpg" alt="The thought becomes a bubble"><br><b>2 · Let it go</b><br><sub>it becomes a bubble</sub></td>
-    <td align="center" width="33%"><img src="docs/media/step-3-bird.jpg" alt="The bird asks a question"><br><b>3 · The bird wonders</b><br><sub>tap its question to answer</sub></td>
+    <td align="center" width="33%"><img src="docs/media/step-3-bird.jpg" alt="The bird asks a question"><br><b>3 · The bird asks one question</b><br><sub>tap it to answer, or wave it away</sub></td>
   </tr>
   <tr>
-    <td align="center" colspan="2"><img src="docs/media/read.gif" alt="Tapping a bubble opens the thought"><br><sub>Tap any bubble to read it again</sub></td>
+    <td align="center" colspan="2"><img src="docs/media/read.gif" alt="Tapping a bubble opens the thought"><br><sub>Tap a floating bubble to read it</sub></td>
     <td align="center"><img src="docs/media/phone.jpg" alt="MyBrary on a phone" width="170"><br><sub>Works on your phone too</sub></td>
   </tr>
 </table>
 
-## The bird's library
+## One page, an empty sky
 
-The bubbles are all the bird knows, and it wants them tidy.
-It reads every bubble to the end, remembers the names in it, and only says what you actually wrote.
+A second messy place is no help to a messy mind. So nothing piles up here.
 
-<table>
-  <tr>
-    <td align="center" width="50%"><img src="docs/media/shelves-sort.gif" alt="The bird blows up a shelf and carries bubbles into it"><br><b>🫧 It sorts</b><br><sub>new shelves, bubbles carried in one by one</sub></td>
-    <td align="center" width="50%"><img src="docs/media/shelves-links.gif" alt="The bird draws a soap-film link between two bubbles"><br><b>🔗 It links</b><br><sub>one word for why two bubbles belong together</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/media/shelves-drag.gif" alt="Dragging a bubble from one shelf into another"><br><b>✋ You rearrange</b><br><sub>drag bubbles, rename and recolour shelves</sub></td>
-    <td align="center"><img src="docs/media/library.jpg" alt="Shelves, links, and the bird's summary"><br><b>🐦 It thinks</b><br><sub>writes its own thoughts, and leaves you small steps to tick off</sub></td>
-  </tr>
-</table>
+| | |
+|---|---|
+| 🫧 **Bubbles leave** | A thought floats only until the bird has taken it in. Then it drifts up and away. Nothing is deleted. |
+| 📄 **One page** | "On your mind": a few lines, each one thing and where it stands. The bird rewrites it after every thought. |
+| ✅ **One small step** | At most one, taken from something you said you want to do. Tick it, or × if it isn't for you. |
+| 🐦 **A quiet bird** | It asks one question per thought, at most, and otherwise keeps to itself. It never comments on what you said. |
 
 ## Talk to the bird
 
@@ -49,15 +44,10 @@ New here? A short tour shows you around on your first visit, and the **?** butto
 
 | | |
 |---|---|
-| 💬 **Ask it** | "what did I say about the trip?" It answers only from your bubbles, and they glow. |
-| 📝 **Tell it** | "keep work and home apart." It remembers, and sorts by it. |
+| 💬 **Ask it** | "what did I say about the trip?" It answers only from what you've told it. |
+| 📝 **Tell it** | "Dana is my sister." It remembers, and the page uses your names. |
 | 🙅 **Wave a question away** | "not this one", and it won't ask that again. |
-| ❓ **Ask why** | Open a bubble or a link to see the words it went by. |
-| 🏷️ **Name what belongs** | Every shelf has one line saying what goes on it. Yours beats the bird's. |
-| 🔍 **Find** | Type a word. Matching bubbles glow and the camera flies over. |
-| 🔁 **What keeps coming back** | It counts names across the month's bubbles. It doesn't guess. |
-| 💤 **Later** | Put a small step off, and it comes back in a few days. |
-| 🕰️ **Old bubbles fade** | The bird dusts one off and asks if it's still true. |
+| 🔍 **Find** | You don't have to look back. But type a word, and anything you ever said with it opens. |
 
 ## Get it running
 

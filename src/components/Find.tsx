@@ -10,12 +10,14 @@ interface Props {
   onMark: (ids: number[]) => void;
   /** Fly the camera to a bubble, or back to the middle with null. */
   onFly: (id: number | null) => void;
+  /** Open a thought to read it. Most of them no longer float, so this is how you get one back. */
+  onOpen: (id: number) => void;
 }
 
 const SHOWN = 6;
 
-/** Type a word: every bubble that has it glows, and the camera flies to the one you pick. */
-export function Find({ thoughts, onMark, onFly }: Props) {
+/** Type a word: every thought that has it is listed. Pick one to read it; if it still floats, it glows too. */
+export function Find({ thoughts, onMark, onFly, onOpen }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [at, setAt] = useState(0);
@@ -52,11 +54,12 @@ export function Find({ thoughts, onMark, onFly }: Props) {
     setAt(i);
     flown.current = true;
     onFly(t.id);
+    onOpen(t.id);
   };
 
   if (!open) {
     return (
-      <button type="button" className="round find-open" aria-label="Find a bubble" onClick={() => setOpen(true)}>
+      <button type="button" className="round find-open" aria-label="Find something you said" onClick={() => setOpen(true)}>
         <SearchIcon />
       </button>
     );
@@ -71,19 +74,16 @@ export function Find({ thoughts, onMark, onFly }: Props) {
           ref={input}
           value={query}
           dir="auto"
-          placeholder="find a word in your bubbles"
-          aria-label="Find a word in your bubbles"
+          placeholder="find a word in what you said"
+          aria-label="Find a word in what you said"
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Escape") close();
-            // Enter walks through the matches, one bubble at a time.
-            else if (e.key === "Enter" && found.length) {
-              go(flown.current ? (at + (e.shiftKey ? found.length - 1 : 1)) % found.length : 0);
-              flown.current = true;
-            }
+            // Enter opens the match that's picked.
+            else if (e.key === "Enter" && found.length) go(at);
           }}
         />
-        {typed && <span className="find-count">{found.length === 1 ? "1 bubble" : `${found.length} bubbles`}</span>}
+        {typed && <span className="find-count">{found.length === 1 ? "1 thought" : `${found.length} thoughts`}</span>}
         <button type="button" className="reply-x" aria-label="Stop looking" onClick={close}>
           ×
         </button>
@@ -97,7 +97,7 @@ export function Find({ thoughts, onMark, onFly }: Props) {
               </button>
             </li>
           ))}
-          {found.length > SHOWN && <li className="find-more">and {found.length - SHOWN} more. they&apos;re all glowing.</li>}
+          {found.length > SHOWN && <li className="find-more">and {found.length - SHOWN} more. add a word to narrow it down.</li>}
         </ul>
       )}
     </div>

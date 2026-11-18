@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { Library } from "@/lib/library";
+import { worldView } from "@/lib/page";
 import type { WorldHandle, WorldOptions } from "@/world/world";
 
 type Hooks = Omit<WorldOptions, "fontFamily">;
@@ -29,19 +30,11 @@ export function useWorld(canvas: RefObject<HTMLCanvasElement | null>, initial: L
           fontFamily,
           greeting: hooksRef.current.greeting,
           say: (t, s) => hooksRef.current.say(t, s),
-          think: (req) => hooksRef.current.think(req),
-          tidy: () => hooksRef.current.tidy(),
-          muse: () => hooksRef.current.muse(),
-          suggest: () => hooksRef.current.suggest(),
-          pattern: () => hooksRef.current.pattern(),
-          aging: () => hooksRef.current.aging(),
-          resync: () => hooksRef.current.resync(),
+          think: (id) => hooksRef.current.think(id),
           onOpen: (id) => hooksRef.current.onOpen(id),
-          onOpenCluster: (id) => hooksRef.current.onOpenCluster(id),
-          onOpenLink: (id) => hooksRef.current.onOpenLink(id),
-          onMove: (id, clusterId, from) => hooksRef.current.onMove(id, clusterId, from),
         });
-        world.current.load(initial);
+        // Only the thoughts the bird hasn't taken into its page yet still float.
+        world.current.load(worldView(initial));
       } catch (error) {
         console.error("[world] failed to start", error);
         setFailed("This browser couldn't draw the 3D world (WebGL is off or unsupported).");

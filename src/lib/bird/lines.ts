@@ -1,4 +1,13 @@
-// Everything the little bird can say without asking Claude.
+// Everything the little bird can say without asking its brain.
+
+/** The bird is quiet by default. Now and then it makes a small sound to itself: never a remark about your thoughts. */
+export const QUIET = ["*hums*", "*adjusts glasses*", "*taps glasses*", "hm hm hmm…", "*fluffs feathers*"] as const;
+
+/** You tapped the bird. */
+export const POKED = ["*chirp*", "*tilts head*", "i'm here.", "i'm listening.", "*adjusts glasses*"] as const;
+
+/** It took your thoughts into the page, and their bubbles float away. */
+export const SETTLED = ["it's on the page now.", "got it. it's on the page.", "there. you can let that one go.", "*writes it down* there."] as const;
 
 export const BORED = [
   "nothing to do…",
@@ -50,12 +59,13 @@ export function daysSince(lastIso: string | null, now: Date = new Date()): numbe
 
 /** What the bird says when you walk in. */
 export function greeting(count: number, days: number | null): string {
-  if (count === 0 || days === null) return "oh! hi. there's nothing here yet… tell me something?";
-  if (days === 0) return count === 1 ? "hi again! your bubble's still floating" : "hi again!";
-  if (days === 1) return "you're back! i kept an eye on the bubbles";
-  if (days < 7) return `${days} days! i've been rereading your bubbles…`;
-  if (days < 30) return "you're here!! i missed you. the bubbles missed you too";
-  return "…is that you? it's been so long. i kept everything safe";
+  // None of these end in a question mark: a greeting isn't a question to answer or wave away.
+  if (count === 0 || days === null) return "oh! hi. there's nothing here yet… tell me something.";
+  if (days === 0) return "hi again!";
+  if (days === 1) return "you're back! tell me what's on your mind.";
+  if (days < 7) return `${days} days! the page is where you left it.`;
+  if (days < 30) return "you're here!! i missed you. tell me what's new.";
+  return "…is that you? it's been so long. i kept the page safe";
 }
 
 // ---------- the librarian ----------
@@ -76,7 +86,10 @@ export const WRITING = ["let me write something down…", "i'm having a thought�
 
 export const PLANNING = ["what could you do about these…", "let me find a small step…", "*taps beak, thinking*"] as const;
 
-export const STEP_DONE = ["you did it! how did it go?", "done! what happened?", "one less bubble to carry. how was it?"] as const;
+export const STEP_DONE = ["you did it! how did it go?", "done! what happened?", "one less thing to carry. how was it?"] as const;
+
+/** You said the step on the page isn't for you. */
+export const STEP_NOPE = ["ok. off the page.", "fair. i'll find a better one.", "*crosses it out*"] as const;
 
 export const WROTE = ["wrote something for you. it's on my shelf", "a thought of my own! come read it", "i put a thought on my shelf"] as const;
 
@@ -89,12 +102,12 @@ export const WAVED = ["ok, not that one.", "fair. i won't ask that again.", "*cr
 export const TOLD = ["got it. i'll remember.", "*writes it on its wing*", "noted, just for me.", "mm. i'll keep that in mind."] as const;
 
 /** You asked the bird something: it goes to look. */
-export const LOOKING = ["let me look…", "hold on, i'll check the bubbles…", "*flips through the library*"] as const;
+export const LOOKING = ["let me look…", "hold on, i'll check what you told me…", "*flips through its pages*"] as const;
 
 /** Your bubbles don't answer what you asked. */
 export const NO_ANSWER = [
-  "none of your bubbles say. i won't guess.",
-  "i looked. it isn't in the bubbles yet.",
+  "you never said. i won't guess.",
+  "i looked. it isn't in anything you told me yet.",
   "hm. you never told me that one.",
 ] as const;
 

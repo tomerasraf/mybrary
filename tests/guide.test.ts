@@ -15,7 +15,7 @@ describe("the guide", () => {
 
   it("points only at things that are always on screen", () => {
     const targets = TOUR.flatMap((s) => (s.target ? [s.target] : []));
-    expect(targets).toEqual([".composer", ".whisper", ".guide-open"]);
+    expect(targets).toEqual([".composer", ".mindpage", ".whisper", ".guide-open"]);
   });
 
   it("says what to do and what not to, without repeating itself", () => {

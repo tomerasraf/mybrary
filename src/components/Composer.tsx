@@ -104,7 +104,7 @@ export function Composer({ busy, question, replyTo, onReply, onSkip, onTell, onC
         <p className="reply-chip whisper-chip" dir="auto">
           <span className="reply-label">{question && !asking ? "just for the bird, about" : "just for the bird"}</span>
           <span className="reply-q">
-            {asking ? "it answers from your bubbles. no bubble." : (question ?? "tell it something, or ask it about your bubbles. no bubble.")}
+            {asking ? "it answers from what you've told it. no bubble." : (question ?? "tell it something, or ask it about what you've said. no bubble.")}
           </span>
           <button type="button" className="reply-x" aria-label="Stop talking to the bird" onClick={() => setWhisper(false)}>
             ×
@@ -138,7 +138,7 @@ export function Composer({ busy, question, replyTo, onReply, onSkip, onTell, onC
         dir="auto"
         value={text}
         maxLength={THOUGHT_MAX}
-        placeholder={speech.listening ? "listening…" : whisper ? "tell the bird, or ask it…" : replyTo ? "tell him…" : "what's tangled up in there?"}
+        placeholder={speech.listening ? "listening…" : whisper ? "tell the bird, or ask it…" : replyTo ? "tell him…" : "what's on your mind?"}
         aria-label={whisper ? "Something just for the bird" : "A new thought"}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
