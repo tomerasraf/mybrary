@@ -6,7 +6,7 @@ import { blobShadowTexture, createBubbleMaterial, textTexture } from "./bubbleMa
 import { INNER_SCALE, bubblePreview, bubbleRadius, hash01 } from "./layout";
 import * as sound from "./sound";
 
-type Phase = "forming" | "rising" | "floating" | "popping";
+type Phase = "forming" | "rising" | "floating" | "popping" | "leaving";
 
 interface Bubble {
   id: number;
@@ -38,6 +38,10 @@ interface Bubble {
 /** How much of an old bubble's shine is gone. */
 const FADE = 0.55;
 const LABEL_OPACITY = 0.85;
+
+/** How long a bubble takes to drift up out of sight when the bird lets it go, and how far it rises. */
+const ASCEND_S = 5;
+const ASCEND_HEIGHT = 9;
 
 /** How quickly a floating bubble catches up with a new place. */
 const GLIDE = 1.8;
@@ -211,6 +215,41 @@ export class BubbleField {
     await drops;
   }
 
+  /**
+   * Lets a bubble go: it drifts up and away, thinning as it rises, until it's out of sight.
+   * Nothing pops and nothing is lost; the thought is in the bird's page now.
+   */
+  async ascend(id: number, delay = 0): Promise<void> {
+    const b = this.bubbles.get(id);
+    if (!b || b.phase === "popping" || b.phase === "leaving") return;
+    b.phase = "leaving";
+    b.held = null;
+    if (delay > 0) await this.animator.wait(delay);
+    sound.swell(1.2);
+    const from = b.group.position.clone();
+    const base = b.scale;
+    const sway = (b.seed - 0.5) * 2.4;
+    const label = b.label.material as THREE.SpriteMaterial;
+    const labelFrom = label.opacity;
+    const shadow = b.shadow.material as THREE.MeshBasicMaterial;
+    const shadowFrom = shadow.opacity;
+    const opacityFrom = b.material.uniforms.uOpacity.value as number;
+    await this.animator.tween(
+      ASCEND_S,
+      (k) => {
+        b.group.position.set(from.x + Math.sin(k * Math.PI * 1.5) * sway * 0.35, from.y + k * k * ASCEND_HEIGHT, from.z);
+        b.group.scale.setScalar(base * (1 - 0.35 * k));
+        // Clear for most of the way up, then thinning out.
+        const fade = 1 - Math.max(0, (k - 0.35) / 0.65);
+        b.material.uniforms.uOpacity.value = opacityFrom * fade;
+        label.opacity = labelFrom * Math.max(0, 1 - k * 2.2);
+        shadow.opacity = shadowFrom * (1 - k);
+      },
+      ease.inOut,
+    );
+    this.dispose(b);
+  }
+
   pick(raycaster: THREE.Raycaster): number | null {
     let best: { id: number; d: number } | null = null;
     for (const b of this.bubbles.values()) {
@@ -297,7 +336,7 @@ export class BubbleField {
       b.shadow.position.set(p.x, 0.004, p.z);
       const spread = b.group.scale.x * (1.6 + height * 0.12);
       b.shadow.scale.set(spread, 1, spread);
-      if (b.phase !== "popping") {
+      if (b.phase !== "popping" && b.phase !== "leaving") {
         (b.shadow.material as THREE.MeshBasicMaterial).opacity = 0.5 / (1 + height * 0.35);
       }
     }

@@ -3,10 +3,10 @@ import type { DB } from "./db";
 /**
  * 'note': something the bird has come to understand. 'said': a line it said out loud.
  * 'waved': a question of its you waved away. 'pattern': something it noticed coming back and told you.
- * 'aged': an old bubble it asked you about.
+ * 'aged': an old bubble it asked you about. 'did': a small step you ticked off. 'nope': a step you didn't want.
  */
-export type NoteKind = "note" | "said" | "waved" | "pattern" | "aged";
-const KINDS: readonly string[] = ["note", "said", "waved", "pattern", "aged"];
+export type NoteKind = "note" | "said" | "waved" | "pattern" | "aged" | "did" | "nope";
+const KINDS: readonly string[] = ["note", "said", "waved", "pattern", "aged", "did", "nope"];
 
 export interface Note {
   id: number;

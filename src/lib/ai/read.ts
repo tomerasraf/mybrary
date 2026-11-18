@@ -6,8 +6,8 @@ import type { Thought } from "../thoughts";
 import { grounded, mentions, nameKey } from "./ground";
 import { askJson } from "./llm";
 import { languageOf } from "./ponder";
+import { digest, needsDigest } from "./digest";
 import { BusyError, oneAtATime } from "./queue";
-import { describeOne, shelfToDescribe } from "./shelves";
 
 // The bird reads a whole bubble, once, and keeps a card about it. Everything else it does works
 // from these cards, so it knows what a long bubble is really about instead of only its first line.
@@ -178,7 +178,8 @@ export async function readThought(db: DB, thought: Thought): Promise<Reading> {
 const state = globalThis as unknown as {
   __birdReading?: boolean;
   __birdReadFails?: Map<number, number>;
-  __birdShelfTried?: Set<number>;
+  /** Whether this run already tried to rewrite the page (one try per run). */
+  __birdDigestTried?: boolean;
 };
 const MAX_TRIES = 2;
 const BUSY_WAIT_MS = 6000;
@@ -192,6 +193,7 @@ export function waitingToBeRead(db: DB): Thought[] {
 
 /**
  * Starts reading unread bubbles, oldest first, one at a time, sharing the brain with everything else.
+ * With everything read, the bird takes the new thoughts into its page, and their bubbles may float away.
  * Returns at once. `delayMs` lets the bird react to a brand new bubble before it sits down to read it.
  */
 export function startReading(db: DB, delayMs = 0): void {
@@ -203,30 +205,30 @@ export function startReading(db: DB, delayMs = 0): void {
       if (delayMs > 0) await sleep(delayMs);
       for (;;) {
         const [next] = waitingToBeRead(db);
-        // With everything read, it writes down what each shelf holds (one try per shelf per run).
-        const tried = (state.__birdShelfTried ??= new Set());
-        const shelf = next ? null : [shelfToDescribe(db)].find((s) => s && !tried.has(s.id));
-        if (!next && !shelf) return;
+        const page = !next && !state.__birdDigestTried && needsDigest(db);
+        if (!next && !page) return;
         try {
           if (next) await oneAtATime(() => readThought(db, next));
-          else if (shelf) {
-            tried.add(shelf.id);
-            await oneAtATime(() => describeOne(db, shelf));
+          else {
+            state.__birdDigestTried = true;
+            await oneAtATime(() => digest(db));
+            // A thought may have arrived while it wrote: that one deserves its own try.
+            state.__birdDigestTried = false;
           }
         } catch (error) {
           if (error instanceof BusyError) {
-            if (shelf) tried.delete(shelf.id);
+            if (!next) state.__birdDigestTried = false;
             await sleep(BUSY_WAIT_MS);
             continue;
           }
           if (next) {
             console.error(`[bird] couldn't read bubble ${next.id}`, error);
             fails.set(next.id, (fails.get(next.id) ?? 0) + 1);
-          } else console.error("[bird] couldn't describe a shelf", error);
+          } else console.error("[bird] couldn't rewrite the page", error);
         }
       }
     } finally {
-      state.__birdShelfTried = new Set();
+      state.__birdDigestTried = false;
       state.__birdReading = false;
     }
   })();

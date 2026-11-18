@@ -14,6 +14,9 @@ interface Member {
   radius: number;
 }
 
+/** When several bubbles leave together, each one starts this long after the one before. */
+const SETTLE_STAGGER_S = 0.7;
+
 /** How strongly linked bubbles follow one you drag. */
 const TUG = 0.6;
 
@@ -64,6 +67,11 @@ export class LibraryScene {
 
   get nook(): number | null {
     return this.nookId;
+  }
+
+  /** Whether this thought has a bubble in the world. */
+  holds(id: number): boolean {
+    return this.members.has(id);
   }
 
   clusterOf(id: number): number | null {
@@ -126,6 +134,25 @@ export class LibraryScene {
     for (const l of this.links.of(id)) void this.links.remove(l, false);
     this.pruneEmpty();
     this.relayout();
+  }
+
+  /**
+   * The bird took these thoughts into its page: their bubbles drift up and away, one after another.
+   * Returns where the first one left from (for the bird to look at), or null when none were floating here.
+   */
+  settle(ids: readonly number[]): THREE.Vector3 | null {
+    let from: THREE.Vector3 | null = null;
+    let n = 0;
+    for (const id of ids) {
+      if (!this.members.has(id) || this.bubbles.isHeld(id)) continue;
+      from ??= this.bubbles.position(id)?.clone() ?? null;
+      this.members.delete(id);
+      this.offsets.delete(id);
+      void this.bubbles.ascend(id, n * SETTLE_STAGGER_S);
+      n += 1;
+    }
+    if (n > 0) this.relayout();
+    return from;
   }
 
   /** Moves a bubble onto a shelf (or loose, with null). `by` null: nobody placed it (a rolled-back move). */
